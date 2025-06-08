@@ -19,16 +19,24 @@ export class AudioProcessor {
       // Load audio worklet processor
       await this.audioContext.audioWorklet.addModule('/audio-processor.js');
 
-      // Get microphone stream
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: 16000,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      // Get microphone stream with fallback options
+      try {
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch (error) {
+        console.warn('Failed with preferred audio settings, trying fallback:', error);
+        // Fallback to basic audio constraints
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: true
+        });
+      }
 
       // Create audio nodes
       this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);

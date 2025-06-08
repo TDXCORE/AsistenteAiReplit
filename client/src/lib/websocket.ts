@@ -52,7 +52,13 @@ export class VoiceWebSocketManager {
       if (!this.controlWs) return reject(new Error('Failed to create WebSocket'));
 
       this.controlWs.onopen = () => {
-        console.log('Control WebSocket connected');
+        console.log('Control WebSocket connected successfully');
+        // Send initial connection confirmation
+        this.controlWs?.send(JSON.stringify({
+          type: 'connection_ready',
+          timestamp: Date.now(),
+          clientId: this.clientId
+        }));
         resolve();
       };
 
@@ -92,7 +98,14 @@ export class VoiceWebSocketManager {
       if (!this.audioWs) return reject(new Error('Failed to create WebSocket'));
 
       this.audioWs.onopen = () => {
-        console.log('Audio WebSocket connected');
+        console.log('Audio WebSocket connected successfully');
+        // Send initial connection confirmation
+        const confirmationBuffer = new TextEncoder().encode(JSON.stringify({
+          type: 'audio_connection_ready',
+          timestamp: Date.now(),
+          clientId: this.clientId
+        }));
+        this.audioWs?.send(confirmationBuffer);
         resolve();
       };
 

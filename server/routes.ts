@@ -25,9 +25,10 @@ const clients = new Map<string, ClientConnection>();
 
 // Message schemas for WebSocket communication
 const controlMessageSchema = z.object({
-  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update', 'run_integration_test']),
+  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update', 'run_integration_test', 'connection_ready']),
   timestamp: z.number(),
   data: z.any().optional(),
+  clientId: z.string().optional(),
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -44,12 +45,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const clientId = url.searchParams.get('clientId');
     const wsType = url.searchParams.get('type'); // 'control' or 'audio'
 
-    if (!clientId) {
-      ws.close(1008, 'Client ID required');
+    if (!clientId || !wsType) {
+      ws.close(1008, 'Client ID and type required');
       return;
     }
 
-    console.log(`WebSocket ${wsType} connection for client: ${clientId}`);
+    console.log(`WebSocket ${wsType} connection established for client: ${clientId}`);
+
+    // Set up connection keepalive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 30000);
+
+    ws.on('pong', () => {
+      console.log(`Keepalive pong received from ${wsType} client: ${clientId}`);
+    });
 
     // Get or create client connection
     let client = clients.get(clientId);
@@ -89,8 +103,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
-    ws.on('close', () => {
-      console.log(`WebSocket ${wsType} disconnected for client: ${clientId}`);
+    ws.on('close', (code, reason) => {
+      console.log(`WebSocket ${wsType} disconnected for client: ${clientId} (code: ${code}, reason: ${reason?.toString()})`);
+      clearInterval(pingInterval);
+      
       if (wsType === 'control') {
         client!.controlWs = undefined;
       } else if (wsType === 'audio') {
@@ -99,12 +115,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Clean up client if both connections are closed
       if (!client!.controlWs && !client!.audioWs) {
+        // Close Deepgram connection if exists
+        if (client!.deepgramConnection) {
+          deepgramService.closeConnection(clientId);
+        }
         clients.delete(clientId);
+        console.log(`Client ${clientId} fully disconnected and cleaned up`);
       }
     });
 
     ws.on('error', (error) => {
       console.error(`WebSocket ${wsType} error for client ${clientId}:`, error);
+      clearInterval(pingInterval);
     });
   });
 
@@ -113,6 +135,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { type, timestamp, data } = message;
 
     switch (type) {
+      case 'connection_ready':
+        console.log(`Client ${client.id} control connection ready`);
+        sendControlMessage(client, {
+          type: 'server_ready',
+          timestamp: Date.now(),
+          status: 'connected'
+        });
+        break;
+
       case 'start_recording':
         if (!client.isRecording) {
           client.isRecording = true;
