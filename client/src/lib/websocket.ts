@@ -115,11 +115,14 @@ export class VoiceWebSocketManager {
 
   sendAudioData(audioData: Float32Array) {
     if (this.audioWs && this.audioWs.readyState === WebSocket.OPEN) {
-      // Convert Float32Array to ArrayBuffer for transmission
-      const buffer = new ArrayBuffer(audioData.length * 4);
-      const view = new Float32Array(buffer);
-      view.set(audioData);
-      this.audioWs.send(buffer);
+      // Convert Float32Array to PCM16 for Deepgram
+      const pcm16 = new Int16Array(audioData.length);
+      for (let i = 0; i < audioData.length; i++) {
+        // Clamp values to [-1, 1] and convert to 16-bit signed integer
+        const clamped = Math.max(-1, Math.min(1, audioData[i]));
+        pcm16[i] = clamped * 32767;
+      }
+      this.audioWs.send(pcm16.buffer);
     }
   }
 

@@ -17,9 +17,12 @@ export class DeepgramService {
       language: 'en-US',
       smart_format: true,
       interim_results: true,
-      utterance_end_ms: 1000,
+      utterance_end_ms: 500,
       vad_events: true,
-      endpointing: 300,
+      endpointing: 200,
+      encoding: 'linear16',
+      sample_rate: 16000,
+      channels: 1,
     } as LiveSchema);
 
     connection.on(LiveTranscriptionEvents.Open, () => {

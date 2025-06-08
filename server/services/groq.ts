@@ -29,9 +29,9 @@ export class GroqService {
             content: prompt
           }
         ],
-        model: options.model || "llama3-8b-8192",
-        max_tokens: options.maxTokens || 150,
-        temperature: options.temperature || 0.7,
+        model: options.model || "llama-3.1-8b-instant",
+        max_tokens: options.maxTokens || 75,
+        temperature: options.temperature || 0.5,
         stream: false,
       });
 
@@ -59,9 +59,9 @@ export class GroqService {
             content: prompt
           }
         ],
-        model: options.model || "llama3-8b-8192",
-        max_tokens: options.maxTokens || 150,
-        temperature: options.temperature || 0.7,
+        model: options.model || "llama-3.1-8b-instant",
+        max_tokens: options.maxTokens || 75,
+        temperature: options.temperature || 0.5,
         stream: true,
       });
 
