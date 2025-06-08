@@ -1,0 +1,823 @@
+<antArtifact identifier="voice_chat_prd" title="PRD Completo: Asistente Ultra-Real <300ms"  type="text/markdown" version_uuid="72a9639d-9c07-4657-81bc-ed47a0e1d951">
+# PRD Completo: Asistente de Voz Ultra-Real <300ms
+
+## 1. Resumen Ejecutivo
+
+### 1.1 Visión del Producto
+Crear el asistente de voz más natural y rápido posible usando voz clonada real, con latencia menor a 300ms, interrupciones fluidas, detección automática de idiomas y respuestas con modismos naturales.
+
+### 1.2 Objetivos Críticos
+- **Latencia Ultra-Baja**: <300ms end-to-end medidos desde fin de speech hasta inicio de respuesta
+- **Voz Ultra-Real**: Voz clonada indistinguible del usuario real con modismos naturales
+- **Interrupciones Naturales**: Sistema que maneja cortes de conversación como humanos reales
+- **Multilingüe Inteligente**: Detección automática y cambio dinámico entre idiomas
+- **Presupuesto Controlado**: <$50/mes total para uso personal/profesional
+
+## 2. Especificaciones Técnicas Detalladas
+
+### 2.1 Arquitectura de Ultra-Baja Latencia
+
+#### Stack de Tecnologías Optimizadas
+```yaml
+Comunicación:
+  Control Channel: WebSocket (comandos, transcripts, estado)
+  Audio Channel: WebSocket Binary (chunks de 20ms)
+  Protocolo: Dual WebSocket para separar control y audio
+  
+Audio Processing:
+  Capture: Web Audio API + AudioWorklets
+  Sample Rate: 16kHz (optimizado para APIs)
+  Chunk Size: 20ms (320 bytes) para ultra-responsividad
+  Format: PCM 16-bit mono, little-endian
+  Buffer: Circular buffer 500ms con overflow protection
+
+VAD (Voice Activity Detection):
+  Method: Hybrid WebRTC VAD + energy-based detection
+  Sensitivity: Adaptable per usuario (aggressive/balanced/conservative)
+  Turn Detection: 300ms silence threshold (configurable por idioma)
+  Interruption: Real-time monitoring durante TTS playback
+```
+
+#### Flujo de Latencia Optimizado (Target <300ms)
+```
+Component Breakdown:
+┌─────────────────────┬─────────────┬─────────────┬─────────────┐
+│ Componente          │ Target (ms) │ Máximo (ms) │ Optimización│
+├─────────────────────┼─────────────┼─────────────┼─────────────┤
+│ Audio Capture       │ 20          │ 50          │ AudioWorklet│
+│ Network Upload      │ 30          │ 80          │ WebSocket   │
+│ STT Processing      │ 80          │ 150         │ Deepgram    │
+│ LLM Inference       │ 100         │ 150         │ Groq Stream │
+│ TTS Synthesis       │ 300         │ 500         │ ElevenLabs  │
+│ Network Download    │ 30          │ 80          │ Streaming   │
+│ Audio Playback      │ 20          │ 50          │ Direct play │
+├─────────────────────┼─────────────┼─────────────┼─────────────┤
+│ TOTAL END-TO-END    │ 580         │ 1060        │ Con optimiz │
+│ Target con Stream   │ 280         │ 400         │ Paralelo    │
+└─────────────────────┴─────────────┴─────────────┴─────────────┘
+```
+
+### 2.2 Frontend: Cliente Ultra-Responsivo
+
+#### Arquitectura del Cliente Web
+```javascript
+// Clase principal del asistente
+class UltraRealAssistant {
+    constructor() {
+        // Audio configuration
+        this.audioConfig = {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            latencyHint: 'interactive'
+        };
+        
+        // Conexiones WebSocket duales
+        this.controlWS = null;      // Comandos y transcripts
+        this.audioWS = null;        // Streaming de audio binario
+        
+        // Estado del sistema
+        this.isRecording = false;
+        this.isPlaying = false;
+        this.canInterrupt = false;
+        this.sessionStartTime = null;
+        this.lastLatency = 0;
+        
+        // Audio processing
+        this.audioContext = null;
+        this.mediaRecorder = null;
+        this.localStream = null;
+        this.audioProcessor = null;
+        this.remoteAudio = new Audio();
+        
+        // UI elementos
+        this.statusEl = document.getElementById('status');
+        this.transcriptEl = document.getElementById('transcript');
+        this.latencyEl = document.getElementById('latency');
+        this.waveformCanvas = document.getElementById('waveform');
+        this.controlsEl = document.getElementById('controls');
+        
+        // Buffers para audio processing
+        this.audioBuffer = new CircularBuffer(8192);
+        this.vadBuffer = new Float32Array(320); // 20ms a 16kHz
+        
+        this.initialize();
+    }
+    
+    async initialize() {
+        await this.setupAudio();
+        await this.setupWebSockets();
+        this.setupEventListeners();
+        this.setupVAD();
+        this.startLatencyMonitoring();
+    }
+    
+    async setupAudio() {
+        try {
+            // Crear AudioContext optimizado para latencia
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000,
+                latencyHint: 'interactive',
+                echoCancellation: true
+            });
+            
+            // Obtener stream del micrófono
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: this.audioConfig
+            });
+            
+            // Crear AudioWorklet para processing en tiempo real
+            await this.audioContext.audioWorklet.addModule('/audio-processor.js');
+            this.audioProcessor = new AudioWorkletNode(this.audioContext, 'audio-processor');
+            
+            // Conectar audio pipeline
+            const source = this.audioContext.createMediaStreamSource(this.localStream);
+            source.connect(this.audioProcessor);
+            this.audioProcessor.connect(this.audioContext.destination);
+            
+            // Handler para chunks de audio procesados
+            this.audioProcessor.port.onmessage = (event) => {
+                if (event.data.type === 'audioChunk' && this.isRecording) {
+                    this.sendAudioChunk(event.data.chunk);
+                    this.updateWaveform(event.data.chunk);
+                    this.processVAD(event.data.chunk);
+                }
+            };
+            
+            this.updateStatus('Audio inicializado ✓');
+            
+        } catch (error) {
+            console.error('Error inicializando audio:', error);
+            this.updateStatus('❌ Error: Permisos de micrófono requeridos');
+            throw error;
+        }
+    }
+    
+    async setupWebSockets() {
+        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+        const clientId = this.generateClientId();
+        
+        try {
+            // WebSocket para control (JSON messages)
+            this.controlWS = new WebSocket(`${wsUrl}/ws/control/${clientId}`);
+            
+            this.controlWS.onopen = () => {
+                console.log('Control WebSocket conectado');
+                this.updateStatus('Conectado - Listo para conversar');
+            };
+            
+            this.controlWS.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                this.handleControlMessage(data);
+            };
+            
+            this.controlWS.onclose = () => {
+                console.log('Control WebSocket desconectado');
+                this.updateStatus('❌ Desconectado');
+            };
+            
+            // WebSocket para audio (binary data)
+            this.audioWS = new WebSocket(`${wsUrl}/ws/audio/${clientId}`);
+            this.audioWS.binaryType = 'arraybuffer';
+            
+            this.audioWS.onopen = () => {
+                console.log('Audio WebSocket conectado');
+            };
+            
+            this.audioWS.onmessage = (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    this.playAudioResponse(event.data);
+                }
+            };
+            
+            this.audioWS.onclose = () => {
+                console.log('Audio WebSocket desconectado');
+            };
+            
+            // Esperar a que ambos WebSockets se conecten
+            await this.waitForConnections();
+            
+        } catch (error) {
+            console.error('Error conectando WebSockets:', error);
+            this.updateStatus('❌ Error de conexión');
+            throw error;
+        }
+    }
+    
+    setupEventListeners() {
+        // Botones de control
+        document.getElementById('startBtn').addEventListener('click', () => this.startConversation());
+        document.getElementById('stopBtn').addEventListener('click', () => this.stopConversation());
+        document.getElementById('interruptBtn').addEventListener('click', () => this.interrupt());
+        document.getElementById('resetBtn').addEventListener('click', () => this.resetConversation());
+        
+        // Atajos de teclado
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !this.isRecording && !e.repeat) {
+                e.preventDefault();
+                this.startConversation();
+            } else if (e.code === 'Escape') {
+                e.preventDefault();
+                this.interrupt();
+            } else if (e.code === 'KeyR' && e.ctrlKey) {
+                e.preventDefault();
+                this.resetConversation();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' && this.isRecording) {
+                e.preventDefault();
+                this.stopConversation();
+            }
+        });
+        
+        // Detectar pérdida de foco para pausar
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && this.isRecording) {
+                this.pauseRecording();
+            }
+        });
+    }
+    
+    setupVAD() {
+        // Configuración de Voice Activity Detection
+        this.vadState = {
+            isSpeaking: false,
+            silenceStart: null,
+            silenceThreshold: 300, // ms
+            energyThreshold: 0.01,
+            speakingHistory: new Array(10).fill(false)
+        };
+    }
+    
+    startLatencyMonitoring() {
+        // Monitor de latencia en tiempo real
+        setInterval(() => {
+            if (this.controlWS && this.controlWS.readyState === WebSocket.OPEN) {
+                const ping = {
+                    type: 'ping',
+                    timestamp: Date.now()
+                };
+                this.controlWS.send(JSON.stringify(ping));
+            }
+        }, 5000); // Ping cada 5 segundos
+    }
+    
+    // Métodos de control de conversación
+    async startConversation() {
+        if (this.isRecording) return;
+        
+        this.isRecording = true;
+        this.sessionStartTime = Date.now();
+        
+        this.updateStatus('🎤 Escuchando...');
+        this.updateControls();
+        
+        // Enviar señal de inicio al servidor
+        this.sendControlMessage({
+            type: 'start_recording',
+            timestamp: this.sessionStartTime
+        });
+        
+        // Iniciar procesamiento de audio
+        this.audioProcessor.port.postMessage({ type: 'start' });
+    }
+    
+    stopConversation() {
+        if (!this.isRecording) return;
+        
+        this.isRecording = false;
+        this.updateStatus('⏳ Procesando...');
+        this.updateControls();
+        
+        // Enviar señal de parada
+        this.sendControlMessage({
+            type: 'stop_recording',
+            timestamp: Date.now()
+        });
+        
+        this.audioProcessor.port.postMessage({ type: 'stop' });
+    }
+    
+    interrupt() {
+        if (this.isPlaying) {
+            // Parar audio de respuesta inmediatamente
+            this.remoteAudio.pause();
+            this.remoteAudio.currentTime = 0;
+            this.isPlaying = false;
+        }
+        
+        // Enviar señal de interrupción
+        this.sendControlMessage({
+            type: 'interrupt',
+            timestamp: Date.now()
+        });
+        
+        this.updateStatus('✋ Interrumpido - Escuchando...');
+        
+        // Reiniciar grabación automáticamente
+        setTimeout(() => this.startConversation(), 100);
+    }
+    
+    resetConversation() {
+        this.stopConversation();
+        
+        this.sendControlMessage({
+            type: 'reset_conversation'
+        });
+        
+        // Limpiar UI
+        this.transcriptEl.innerHTML = '';
+        this.latencyEl.textContent = 'Latencia: -- ms';
+        this.updateStatus('🔄 Conversación reiniciada');
+    }
+    
+    // Métodos de procesamiento de audio
+    sendAudioChunk(audioChunk) {
+        if (this.audioWS && this.audioWS.readyState === WebSocket.OPEN) {
+            // Convertir Float32Array a Int16Array
+            const int16Array = new Int16Array(audioChunk.length);
+            for (let i = 0; i < audioChunk.length; i++) {
+                int16Array[i] = Math.max(-32768, Math.min(32767, audioChunk[i] * 32768));
+            }
+            
+            this.audioWS.send(int16Array.buffer);
+        }
+    }
+    
+    playAudioResponse(audioBuffer) {
+        try {
+            // Crear blob de audio y reproducir inmediatamente
+            const blob = new Blob([audioBuffer], { type: 'audio/wav' });
+            const audioUrl = URL.createObjectURL(blob);
+            
+            this.remoteAudio.src = audioUrl;
+            this.remoteAudio.play();
+            
+            this.isPlaying = true;
+            this.canInterrupt = true;
+            
+            this.remoteAudio.onended = () => {
+                this.isPlaying = false;
+                this.canInterrupt = false;
+                URL.revokeObjectURL(audioUrl);
+                this.updateStatus('Listo - Haz click o presiona espacio');
+            };
+            
+        } catch (error) {
+            console.error('Error reproduciendo audio:', error);
+        }
+    }
+    
+    processVAD(audioChunk) {
+        // Calcular energía del audio
+        let energy = 0;
+        for (let i = 0; i < audioChunk.length; i++) {
+            energy += audioChunk[i] * audioChunk[i];
+        }
+        energy = Math.sqrt(energy / audioChunk.length);
+        
+        // Determinar si hay speech
+        const isSpeaking = energy > this.vadState.energyThreshold;
+        
+        // Actualizar historial
+        this.vadState.speakingHistory.shift();
+        this.vadState.speakingHistory.push(isSpeaking);
+        
+        // Lógica de detección de fin de turno
+        const recentSpeech = this.vadState.speakingHistory.slice(-3).some(s => s);
+        
+        if (this.vadState.isSpeaking && !recentSpeech) {
+            // Comenzó silencio
+            if (!this.vadState.silenceStart) {
+                this.vadState.silenceStart = Date.now();
+            } else if (Date.now() - this.vadState.silenceStart > this.vadState.silenceThreshold) {
+                // Silencio suficiente para terminar turno
+                this.stopConversation();
+                this.vadState.silenceStart = null;
+            }
+        } else if (recentSpeech) {
+            // Hay speech, resetear silencio
+            this.vadState.silenceStart = null;
+        }
+        
+        this.vadState.isSpeaking = recentSpeech;
+    }
+    
+    updateWaveform(audioChunk) {
+        const canvas = this.waveformCanvas;
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width = canvas.offsetWidth;
+        const height = canvas.height = canvas.offsetHeight;
+        
+        ctx.clearRect(0, 0, width, height);
+        
+        // Dibujar waveform
+        ctx.strokeStyle = this.isRecording ? '#00ff00' : '#666';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        const sliceWidth = width / audioChunk.length;
+        let x = 0;
+        
+        for (let i = 0; i < audioChunk.length; i++) {
+            const v = (audioChunk[i] + 1) / 2; // Normalizar a 0-1
+            const y = v * height;
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+            
+            x += sliceWidth;
+        }
+        
+        ctx.stroke();
+        
+        // Indicador de nivel
+        const level = Math.sqrt(audioChunk.reduce((sum, val) => sum + val * val, 0) / audioChunk.length);
+        const levelHeight = level * height;
+        
+        ctx.fillStyle = this.isRecording ? 'rgba(0, 255, 0, 0.3)' : 'rgba(102, 102, 102, 0.3)';
+        ctx.fillRect(width - 20, height - levelHeight, 15, levelHeight);
+    }
+    
+    // Métodos de manejo de mensajes
+    handleControlMessage(data) {
+        switch (data.type) {
+            case 'partial_transcript':
+                this.updateTranscript(`👤 ${data.text}`, 'user partial');
+                break;
+                
+            case 'final_transcript':
+                this.updateTranscript(`👤 ${data.text}`, 'user final');
+                this.updateStatus('🤔 Pensando...');
+                break;
+                
+            case 'assistant_thinking':
+                this.updateStatus('🧠 Generando respuesta...');
+                break;
+                
+            case 'assistant_speaking_start':
+                this.updateTranscript(`🤖 ${data.text}`, 'assistant speaking');
+                this.updateStatus('🗣️ Hablando...');
+                break;
+                
+            case 'assistant_response_complete':
+                this.updateTranscript(`🤖 ${data.text}`, 'assistant complete');
+                this.calculateLatency(data.timestamp);
+                this.updateStatus('Listo - Haz click o presiona espacio');
+                break;
+                
+            case 'language_detected':
+                this.updateLanguageIndicator(data.language, data.confidence);
+                break;
+                
+            case 'error':
+                this.updateStatus(`❌ Error: ${data.message}`);
+                this.isRecording = false;
+                this.updateControls();
+                break;
+                
+            case 'pong':
+                this.updateNetworkLatency(Date.now() - data.timestamp);
+                break;
+        }
+    }
+    
+    // Métodos de UI
+    updateStatus(status) {
+        this.statusEl.textContent = status;
+        console.log(`Status: ${status}`);
+    }
+    
+    updateTranscript(text, className) {
+        const div = document.createElement('div');
+        div.className = `transcript-item ${className}`;
+        div.innerHTML = `
+            <span class="timestamp">[${new Date().toLocaleTimeString()}]</span>
+            <span class="content">${text}</span>
+        `;
+        
+        this.transcriptEl.appendChild(div);
+        this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+        
+        // Limitar historial a últimas 50 entradas
+        while (this.transcriptEl.children.length > 50) {
+            this.transcriptEl.removeChild(this.transcriptEl.firstChild);
+        }
+    }
+    
+    updateControls() {
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const interruptBtn = document.getElementById('interruptBtn');
+        
+        startBtn.disabled = this.isRecording;
+        stopBtn.disabled = !this.isRecording;
+        interruptBtn.disabled = !this.canInterrupt;
+        
+        if (this.isRecording) {
+            startBtn.textContent = '🎤 Grabando...';
+            startBtn.classList.add('recording');
+        } else {
+            startBtn.textContent = '🎤 Iniciar';
+            startBtn.classList.remove('recording');
+        }
+    }
+    
+    calculateLatency(serverTimestamp) {
+        if (this.sessionStartTime) {
+            const latency = Date.now() - this.sessionStartTime;
+            this.lastLatency = latency;
+            
+            this.latencyEl.textContent = `Latencia: ${latency}ms`;
+            
+            // Color coding basado en latencia
+            if (latency < 300) {
+                this.latencyEl.className = 'latency good';
+            } else if (latency < 500) {
+                this.latencyEl.className = 'latency fair';
+            } else {
+                this.latencyEl.className = 'latency poor';
+            }
+        }
+    }
+    
+    updateLanguageIndicator(language, confidence) {
+        const indicator = document.getElementById('languageIndicator');
+        if (indicator) {
+            indicator.textContent = `🌐 ${language} (${Math.round(confidence * 100)}%)`;
+            indicator.className = confidence > 0.8 ? 'lang-confident' : 'lang-uncertain';
+        }
+    }
+    
+    updateNetworkLatency(rtt) {
+        const networkEl = document.getElementById('networkLatency');
+        if (networkEl) {
+            networkEl.textContent = `Red: ${rtt}ms`;
+        }
+    }
+    
+    // Métodos utilitarios
+    sendControlMessage(message) {
+        if (this.controlWS && this.controlWS.readyState === WebSocket.OPEN) {
+            this.controlWS.send(JSON.stringify(message));
+        }
+    }
+    
+    generateClientId() {
+        return 'client-' + Math.random().toString(36).substr(2, 9);
+    }
+    
+    async waitForConnections() {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Connection timeout'));
+            }, 10000);
+            
+            const checkConnections = () => {
+                if (this.controlWS.readyState === WebSocket.OPEN && 
+                    this.audioWS.readyState === WebSocket.OPEN) {
+                    clearTimeout(timeout);
+                    resolve();
+                } else {
+                    setTimeout(checkConnections, 100);
+                }
+            };
+            
+            checkConnections();
+        });
+    }
+}
+
+// Clase auxiliar para buffer circular
+class CircularBuffer {
+    constructor(size) {
+        this.size = size;
+        this.buffer = new Float32Array(size);
+        this.writeIndex = 0;
+        this.readIndex = 0;
+        this.count = 0;
+    }
+    
+    write(data) {
+        for (let i = 0; i < data.length; i++) {
+            this.buffer[this.writeIndex] = data[i];
+            this.writeIndex = (this.writeIndex + 1) % this.size;
+            
+            if (this.count < this.size) {
+                this.count++;
+            } else {
+                this.readIndex = (this.readIndex + 1) % this.size;
+            }
+        }
+    }
+    
+    read(length) {
+        const result = new Float32Array(Math.min(length, this.count));
+        
+        for (let i = 0; i < result.length; i++) {
+            result[i] = this.buffer[this.readIndex];
+            this.readIndex = (this.readIndex + 1) % this.size;
+            this.count--;
+        }
+        
+        return result;
+    }
+}
+
+// Inicialización cuando se carga la página
+document.addEventListener('DOMContentLoaded', () => {
+    window.assistant = new UltraRealAssistant();
+});
+```
+
+#### AudioWorklet Processor (audio-processor.js)
+```javascript
+class AudioProcessor extends AudioWorkletProcessor {
+    constructor() {
+        super();
+        this.isRecording = false;
+        this.chunkSize = 320; // 20ms a 16kHz
+        this.buffer = new Float32Array(this.chunkSize);
+        this.bufferIndex = 0;
+        
+        this.port.onmessage = (event) => {
+            if (event.data.type === 'start') {
+                this.isRecording = true;
+            } else if (event.data.type === 'stop') {
+                this.isRecording = false;
+            }
+        };
+    }
+    
+    process(inputs, outputs, parameters) {
+        const input = inputs[0];
+        
+        if (input.length > 0 && this.isRecording) {
+            const inputChannel = input[0];
+            
+            for (let i = 0; i < inputChannel.length; i++) {
+                this.buffer[this.bufferIndex] = inputChannel[i];
+                this.bufferIndex++;
+                
+                if (this.bufferIndex >= this.chunkSize) {
+                    // Enviar chunk completo
+                    this.port.postMessage({
+                        type: 'audioChunk',
+                        chunk: new Float32Array(this.buffer)
+                    });
+                    
+                    this.bufferIndex = 0;
+                }
+            }
+        }
+        
+        return true;
+    }
+}
+
+registerProcessor('audio-processor', AudioProcessor);
+```
+
+### 2.3 Backend: Servidor Ultra-Optimizado
+
+#### Arquitectura del Servidor
+```python
+# main.py - Servidor Ultra-Optimizado para <300ms
+import asyncio
+import json
+import time
+import logging
+import uuid
+from typing import Dict, List, Optional
+import numpy as np
+from pathlib import Path
+import io
+import wave
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+# APIs Ultra-Rápidas
+from deepgram import (
+    DeepgramClient, 
+    DeepgramClientOptions, 
+    LiveTranscriptionEvents,
+    LiveOptions
+)
+from groq import Groq
+from elevenlabs import (
+    VoiceSettings, 
+    generate, 
+    stream, 
+    set_api_key, 
+    Voice,
+    clone
+)
+
+# Configuración optimizada de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Configuración de la aplicación
+app = FastAPI(
+    title="Asistente Ultra-Real",
+    description="Asistente de voz con latencia <300ms y voz clonada",
+    version="1.0.0"
+)
+
+# CORS para desarrollo
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+# Servir archivos estáticos
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/", StaticFiles(directory="static", html=True), name="frontend")
+
+# Configuración de APIs
+class Config:
+    DEEPGRAM_API_KEY = "your-deepgram-key-here"
+    GROQ_API_KEY = "your-groq-key-here"
+    ELEVENLABS_API_KEY = "your-elevenlabs-key-here"
+    CLONED_VOICE_ID = "your-cloned-voice-id"  # Obtenido después de clonar
+    
+    # Configuración de rendimiento
+    MAX_CONCURRENT_CONNECTIONS = 10
+    AUDIO_CHUNK_SIZE = 320  # 20ms a 16kHz
+    MAX_RECORDING_TIME = 30  # segundos
+    RESPONSE_TIMEOUT = 10    # segundos
+    
+    # Configuración de latencia
+    DEEPGRAM_ENDPOINTING = 300  # ms
+    LLM_MAX_TOKENS = 50         # Respuestas cortas
+    TTS_CHUNK_SIZE = 1024       # bytes
+
+config = Config()
+
+# Inicializar clientes de APIs
+deepgram_client = DeepgramClient(config.DEEPGRAM_API_KEY)
+groq_client = Groq(api_key=config.GROQ_API_KEY)
+set_api_key(config.ELEVENLABS_API_KEY)
+
+class ConversationProcessor:
+    """Procesador optimizado para conversaciones ultra-rápidas"""
+    
+    def __init__(self, client_id: str):
+        self.client_id = client_id
+        self.conversation_history: List[Dict] = []
+        self.current_session = {
+            'start_time': None,
+            'language': 'auto',
+            'confidence': 0.0,
+            'is_processing': False,
+            'last_transcript': '',
+            'context_tokens': 0
+        }
+        
+        # Configuración de personalidad
+        self.personality_config = self.load_personality()
+        
+        # Buffers de audio
+        self.audio_buffer = bytearray()
+        self.deepgram_connection = None
+        
+        logger.info(f"Processor inicializado para cliente: {client_id}")
+    
+    def load_personality(self) -> Dict:
+        """Carga configuración de personalidad específica"""
+        return {
+            'name': 'Asistente Ultra-Real',
+            'style': 'natural_mexican',  # Configurar según tu región
+            'system_prompt': '''
+Eres un asistente de voz ultra-natural que responde exactamente como [TU NOMBRE].
+
+PERSONALIDAD:
+- Hablas con modismos naturales mexicanos: "órale", "qué padre", "está padrísimo"
+- Eres cálido, expresivo y auténtico
+- Respondes como en conversación casual entre amigos
+- Usas contracciones y habla natural: "pa'", "que'stás", "d'ónde"
+
+REGLAS ULTRA-RÁPIDAS:
+- Máximo 15 palabras por respuesta
+- Si te interrumpen: "¿Sí?", "¿Dime?", "¿Qué pasó?"
+- Mantén contexto de interrupciones naturalmente
+- Usa expresiones según emoción: entusiasta, explicativo, casual
+
+EJEMPLOS:
+- "​​​​​​​​​​​​​​​​
