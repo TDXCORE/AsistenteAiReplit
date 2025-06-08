@@ -20,7 +20,7 @@ export class DeepgramService {
       console.log(`Creating Deepgram connection for client: ${clientId}`);
       const connection = this.client.listen.live({
         model: 'nova-2',
-        language: 'en-US',
+        detect_language: true,
         smart_format: true,
         interim_results: true,
         utterance_end_ms: 1000,
@@ -38,13 +38,16 @@ export class DeepgramService {
       connection.on(LiveTranscriptionEvents.Transcript, (data) => {
         console.log(`Deepgram transcript event for client ${clientId}:`, JSON.stringify(data, null, 2));
         const transcript = data.channel?.alternatives?.[0]?.transcript;
+        const detectedLanguage = data.channel?.alternatives?.[0]?.language;
+        
         if (transcript && transcript.trim()) {
-          console.log(`Processing transcript for client ${clientId}: "${transcript}" (final: ${data.is_final})`);
+          console.log(`Processing transcript for client ${clientId}: "${transcript}" (final: ${data.is_final}, language: ${detectedLanguage})`);
           onTranscript({
             transcript,
             is_final: data.is_final,
             confidence: data.channel?.alternatives?.[0]?.confidence || 0,
             words: data.channel?.alternatives?.[0]?.words || [],
+            language: detectedLanguage || 'en',
           });
         } else {
           console.log(`Empty or invalid transcript for client ${clientId}:`, data);

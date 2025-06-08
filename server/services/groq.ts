@@ -16,13 +16,27 @@ export class GroqService {
     model?: string;
     maxTokens?: number;
     temperature?: number;
+    language?: string;
   } = {}): Promise<string> {
     try {
+      const languageMap: { [key: string]: string } = {
+        'en': 'English',
+        'es': 'Spanish (Español)',
+        'fr': 'French (Français)',
+        'de': 'German (Deutsch)',
+        'it': 'Italian (Italiano)',
+        'pt': 'Portuguese (Português)',
+      };
+
+      const detectedLanguage = languageMap[options.language || 'en'] || 'English';
+      
+      const systemPrompt = `You are an ultra-realistic voice assistant. Respond naturally and conversationally in ${detectedLanguage}. IMPORTANT: Always respond in the same language the user spoke to you in. Keep responses concise but informative. Use natural speech patterns and contractions appropriate for ${detectedLanguage}.`;
+
       const completion = await this.client.chat.completions.create({
         messages: [
           {
             role: "system",
-            content: "You are an ultra-realistic voice assistant. Respond naturally and conversationally, as if you were a helpful human assistant. Keep responses concise but informative. Use natural speech patterns and contractions."
+            content: systemPrompt
           },
           {
             role: "user",

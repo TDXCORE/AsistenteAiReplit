@@ -18,6 +18,7 @@ interface ClientConnection {
   startTime?: number;
   deepgramConnection?: any;
   currentTranscript?: string;
+  detectedLanguage?: string;
   audioBuffer?: ArrayBuffer[];
 }
 
@@ -261,13 +262,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Handle transcript updates from Deepgram
   function handleTranscriptUpdate(client: ClientConnection, transcriptData: any) {
-    const { transcript, is_final, confidence } = transcriptData;
+    const { transcript, is_final, confidence, language } = transcriptData;
     
-    console.log(`Transcript update for client ${client.id}: "${transcript}" (final: ${is_final}, confidence: ${confidence})`);
+    console.log(`Transcript update for client ${client.id}: "${transcript}" (final: ${is_final}, confidence: ${confidence}, language: ${language})`);
     
     if (is_final) {
       client.currentTranscript = transcript;
-      console.log(`Final transcript saved for client ${client.id}: "${transcript}"`);
+      client.detectedLanguage = language;
+      console.log(`Final transcript saved for client ${client.id}: "${transcript}" in language: ${language}`);
       
       sendControlMessage(client, {
         type: 'transcript_update',
@@ -275,7 +277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         transcript,
         isFinal: true,
         confidence,
-        language: 'en-US',
+        language: language || 'en',
       });
     } else {
       sendControlMessage(client, {
@@ -284,7 +286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         transcript,
         isFinal: false,
         confidence,
-        language: 'en-US',
+        language: language || 'en',
       });
     }
   }
