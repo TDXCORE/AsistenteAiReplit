@@ -132,7 +132,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             client.deepgramConnection = await deepgramService.createLiveTranscription(
               client.id,
-              (transcriptData) => handleTranscriptUpdate(client, transcriptData),
+              async (transcriptData) => {
+                handleTranscriptUpdate(client, transcriptData);
+                
+                // If transcript is final and has content, process the complete voice pipeline
+                if (transcriptData.is_final && transcriptData.transcript && transcriptData.transcript.trim().length > 3) {
+                  await processCompleteVoicePipeline(client, transcriptData.transcript.trim());
+                }
+              },
               (error) => console.error('Deepgram error for client', client.id, error)
             );
             

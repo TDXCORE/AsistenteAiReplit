@@ -84,7 +84,7 @@ export class MemStorage implements IStorage {
     const message: ConversationMessage = {
       id,
       timestamp: new Date(),
-      sessionId: insertMessage.sessionId,
+      sessionId: insertMessage.sessionId ?? null,
       messageType: insertMessage.messageType,
       content: insertMessage.content,
       latency: insertMessage.latency ?? null,
@@ -105,9 +105,17 @@ export class MemStorage implements IStorage {
   async createPerformanceMetric(insertMetric: InsertPerformanceMetric): Promise<PerformanceMetric> {
     const id = this.currentId++;
     const metric: PerformanceMetric = {
-      ...insertMetric,
       id,
       timestamp: new Date(),
+      sessionId: insertMetric.sessionId ?? null,
+      audioCaptureLatency: insertMetric.audioCaptureLatency ?? null,
+      networkUpLatency: insertMetric.networkUpLatency ?? null,
+      sttLatency: insertMetric.sttLatency ?? null,
+      llmLatency: insertMetric.llmLatency ?? null,
+      ttsLatency: insertMetric.ttsLatency ?? null,
+      networkDownLatency: insertMetric.networkDownLatency ?? null,
+      totalLatency: insertMetric.totalLatency ?? null,
+      audioLevel: insertMetric.audioLevel ?? null,
     };
     this.metrics.set(id, metric);
     return metric;
@@ -122,9 +130,12 @@ export class MemStorage implements IStorage {
   async createApiUsage(insertUsage: InsertApiUsage): Promise<ApiUsage> {
     const id = this.currentId++;
     const usage: ApiUsage = {
-      ...insertUsage,
       id,
       timestamp: new Date(),
+      sessionId: insertUsage.sessionId ?? null,
+      cost: insertUsage.cost,
+      service: insertUsage.service,
+      requestCount: insertUsage.requestCount ?? null,
     };
     this.usage.set(id, usage);
     return usage;
