@@ -78,21 +78,37 @@ export class AudioProcessor {
     }
   }
 
-  startRecording(onAudioData: (data: Float32Array) => void, onAudioLevel?: (level: number) => void) {
-    if (!this.audioContext || !this.audioWorkletNode) {
-      throw new Error('Audio processor not initialized');
-    }
+  async startRecording(onAudioData: (data: Float32Array) => void, onAudioLevel?: (level: number) => void) {
+    try {
+      if (!this.audioContext || !this.audioWorkletNode) {
+        await this.initialize();
+      }
 
-    this.isRecording = true;
-    this.onAudioData = onAudioData;
-    this.onAudioLevel = onAudioLevel;
+      // Resume audio context if suspended (requires user gesture)
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
 
-    // Start audio worklet processing
-    this.audioWorkletNode.port.postMessage({ type: 'start' });
+      if (!this.audioContext || !this.audioWorkletNode) {
+        throw new Error('Audio processor failed to initialize');
+      }
 
-    // Start audio level monitoring
-    if (onAudioLevel) {
-      this.startAudioLevelMonitoring();
+      this.isRecording = true;
+      this.onAudioData = onAudioData;
+      this.onAudioLevel = onAudioLevel;
+
+      // Start audio worklet processing
+      this.audioWorkletNode.port.postMessage({ type: 'start' });
+
+      // Start audio level monitoring
+      if (onAudioLevel) {
+        this.startAudioLevelMonitoring();
+      }
+      
+      console.log('Recording started successfully');
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      throw error;
     }
   }
 

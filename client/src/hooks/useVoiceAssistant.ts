@@ -210,7 +210,7 @@ export function useVoiceAssistant() {
       });
 
       // Start audio processing
-      audioProcessor.startRecording(
+      await audioProcessor.startRecording(
         (audioData) => {
           wsManagerRef.current?.sendAudioData(audioData);
         },
