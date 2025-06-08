@@ -6,6 +6,7 @@ import { TranscriptionDisplay } from '../components/TranscriptionDisplay';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { BudgetMonitor } from '../components/BudgetMonitor';
 import { SystemStatus } from '../components/SystemStatus';
+import { IntegrationTest } from '../components/IntegrationTest';
 import { Mic, Settings } from 'lucide-react';
 
 export default function VoiceAssistant() {
@@ -26,6 +27,9 @@ export default function VoiceAssistant() {
     interrupt,
     resetConversation,
     updateVoiceSettings,
+    runIntegrationTest,
+    integrationTestResults,
+    isTestRunning,
   } = useVoiceAssistant();
 
   // Keyboard shortcuts
@@ -200,6 +204,20 @@ export default function VoiceAssistant() {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* System Status */}
+            <SystemStatus
+              connectionStatus={connectionStatus}
+              isRecording={isRecording}
+              isPlaying={isPlaying}
+            />
+
+            {/* Integration Test */}
+            <IntegrationTest 
+              onRunTest={runIntegrationTest}
+              testResults={integrationTestResults}
+              isRunning={isTestRunning}
+            />
+
             {/* Performance Metrics */}
             <PerformanceMetrics metrics={metrics} />
 
@@ -210,13 +228,6 @@ export default function VoiceAssistant() {
             <VoiceSettings 
               settings={voiceSettings}
               onUpdateSettings={updateVoiceSettings}
-            />
-
-            {/* System Status */}
-            <SystemStatus
-              connectionStatus={connectionStatus}
-              isRecording={isRecording}
-              isPlaying={isPlaying}
             />
           </div>
         </div>

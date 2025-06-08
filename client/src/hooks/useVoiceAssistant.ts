@@ -64,6 +64,9 @@ export function useVoiceAssistant() {
     autoGainControl: false,
   });
 
+  const [integrationTestResults, setIntegrationTestResults] = useState<any>(null);
+  const [isTestRunning, setIsTestRunning] = useState(false);
+
   const wsManagerRef = useRef<VoiceWebSocketManager | null>(null);
   const clientIdRef = useRef<string>(generateClientId());
   const sessionStartRef = useRef<number | null>(null);
@@ -150,6 +153,16 @@ export function useVoiceAssistant() {
           ...prev,
           ping: message.latency,
         }));
+        break;
+
+      case 'integration_test_results':
+        setIntegrationTestResults(message.results);
+        setIsTestRunning(false);
+        break;
+
+      case 'integration_test_error':
+        console.error('Integration test error:', message.error);
+        setIsTestRunning(false);
         break;
 
       default:
@@ -244,6 +257,18 @@ export function useVoiceAssistant() {
     }
   }, []);
 
+  const runIntegrationTest = useCallback(() => {
+    if (!wsManagerRef.current) return;
+
+    setIsTestRunning(true);
+    setIntegrationTestResults(null);
+    
+    wsManagerRef.current.sendControlMessage({
+      type: 'run_integration_test',
+      timestamp: Date.now(),
+    });
+  }, []);
+
   // Update session stats periodically
   useEffect(() => {
     const interval = setInterval(() => {
@@ -297,6 +322,11 @@ export function useVoiceAssistant() {
     interrupt,
     resetConversation,
     updateVoiceSettings,
+    runIntegrationTest,
+    
+    // Integration Test
+    integrationTestResults,
+    isTestRunning,
   };
 }
 

@@ -82,9 +82,15 @@ export class MemStorage implements IStorage {
   async createConversationMessage(insertMessage: InsertConversationMessage): Promise<ConversationMessage> {
     const id = this.currentId++;
     const message: ConversationMessage = {
-      ...insertMessage,
       id,
       timestamp: new Date(),
+      sessionId: insertMessage.sessionId,
+      messageType: insertMessage.messageType,
+      content: insertMessage.content,
+      latency: insertMessage.latency ?? null,
+      confidence: insertMessage.confidence ?? null,
+      language: insertMessage.language ?? null,
+      cost: insertMessage.cost ?? null,
     };
     this.messages.set(id, message);
     return message;
