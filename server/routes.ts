@@ -16,6 +16,8 @@ interface ClientConnection {
   sessionId?: number;
   isRecording: boolean;
   isProcessing?: boolean;
+  isPlaying?: boolean;
+  lastResponseTime?: number;
   startTime?: number;
   deepgramConnection?: any;
   currentTranscript?: string;
@@ -76,10 +78,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id: clientId,
         isRecording: false,
         isProcessing: false,
+        isPlaying: false,
         languageHistory: [],
         audioBuffer: [],
       };
       clients.set(clientId, client);
+    } else {
+      // Close existing connections if any to prevent duplicates
+      if (wsType === 'control' && client.controlWs && client.controlWs.readyState === WebSocket.OPEN) {
+        console.log(`Closing existing control connection for client ${clientId}`);
+        client.controlWs.close();
+      }
+      if (wsType === 'audio' && client.audioWs && client.audioWs.readyState === WebSocket.OPEN) {
+        console.log(`Closing existing audio connection for client ${clientId}`);
+        client.audioWs.close();
+      }
     }
 
     // Assign WebSocket based on type
@@ -313,6 +326,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return;
     }
 
+    // Echo suppression: Skip audio processing if assistant is currently playing
+    const currentTime = Date.now();
+    if (client.isPlaying && client.lastResponseTime && (currentTime - client.lastResponseTime) < 5000) {
+      // Skip processing for 5 seconds after assistant response to prevent echo
+      return;
+    }
+
     console.log(`Processing audio chunk for client ${client.id}: ${audioData.byteLength} bytes`);
     
     if (client.deepgramConnection) {
@@ -444,6 +464,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send audio data via audio WebSocket
       if (client.audioWs && client.audioWs.readyState === WebSocket.OPEN) {
         console.log(`Sending ${audioBuffer.byteLength} bytes of TTS audio to client ${client.id}`);
+        
+        // Mark client as playing and set response time for echo suppression
+        client.isPlaying = true;
+        client.lastResponseTime = Date.now();
+        
         client.audioWs.send(audioBuffer);
         
         // Notify client that audio is ready
@@ -452,6 +477,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: Date.now(),
           audioLength: audioBuffer.byteLength,
         });
+        
+        // Auto-stop playing after estimated audio duration (rough estimate based on bytes)
+        const estimatedDuration = Math.max(2000, (audioBuffer.byteLength / 32000) * 1000);
+        setTimeout(() => {
+          client.isPlaying = false;
+        }, estimatedDuration);
+        
       } else {
         console.warn(`Audio WebSocket not ready for client ${client.id}, state: ${client.audioWs?.readyState}`);
       }
