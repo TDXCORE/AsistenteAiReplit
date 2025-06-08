@@ -27,7 +27,7 @@ export class DeepgramService {
         vad_events: true,
         endpointing: 300,
         encoding: 'linear16',
-        sample_rate: 16000,
+        sample_rate: 48000,
         channels: 1,
       } as LiveSchema);
 

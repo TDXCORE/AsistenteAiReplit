@@ -10,11 +10,12 @@ export class AudioProcessor {
 
   async initialize() {
     try {
-      // Create AudioContext
+      // Create AudioContext with native sample rate (usually 48kHz)
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 16000,
         latencyHint: 'interactive',
       });
+      
+      console.log(`AudioContext sample rate: ${this.audioContext.sampleRate}Hz`);
 
       // Resume audio context if suspended (requires user interaction)
       if (this.audioContext.state === 'suspended') {
@@ -24,17 +25,18 @@ export class AudioProcessor {
       // Load audio worklet processor
       await this.audioContext.audioWorklet.addModule('/audio-processor.js');
 
-      // Get microphone stream with fallback options
+      // Get microphone stream with optimal settings for speech recognition
       try {
         this.mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: {
-            sampleRate: 16000,
             channelCount: 1,
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
+            // Let browser use its native sample rate
           },
         });
+        console.log(`Microphone stream acquired with ${this.mediaStream.getAudioTracks()[0].getSettings().sampleRate || 'default'} sample rate`);
       } catch (error) {
         console.warn('Failed with preferred audio settings, trying fallback:', error);
         // Fallback to basic audio constraints

@@ -19,18 +19,22 @@ class AudioProcessor extends AudioWorkletProcessor {
     if (input && input.length > 0 && this.isRecording) {
       const inputChannel = input[0];
       
-      // Convert Float32 to PCM16 format for Deepgram
-      const pcm16Data = new Int16Array(inputChannel.length);
-      for (let i = 0; i < inputChannel.length; i++) {
-        // Convert float32 (-1 to 1) to int16 (-32768 to 32767)
-        const sample = Math.max(-1, Math.min(1, inputChannel[i]));
-        pcm16Data[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      // Ensure we have sufficient audio data before processing
+      if (inputChannel.length >= 128) {
+        // Convert Float32 to PCM16 format for Deepgram with proper scaling
+        const pcm16Data = new Int16Array(inputChannel.length);
+        for (let i = 0; i < inputChannel.length; i++) {
+          // Clamp to valid range and convert to 16-bit signed integer
+          const clamped = Math.max(-1, Math.min(1, inputChannel[i]));
+          // Apply proper scaling and avoid distortion
+          pcm16Data[i] = Math.round(clamped * 32767);
+        }
+        
+        this.port.postMessage({
+          type: 'audioData',
+          audioData: pcm16Data
+        });
       }
-      
-      this.port.postMessage({
-        type: 'audioData',
-        audioData: pcm16Data
-      });
     }
 
     return true;
