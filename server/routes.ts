@@ -19,6 +19,8 @@ interface ClientConnection {
   deepgramConnection?: any;
   currentTranscript?: string;
   detectedLanguage?: string;
+  languageHistory: Array<{ language: string; confidence: number; timestamp: number }>;
+  preferredLanguage?: string;
   audioBuffer?: ArrayBuffer[];
 }
 
@@ -72,6 +74,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       client = {
         id: clientId,
         isRecording: false,
+        languageHistory: [],
+        audioBuffer: [],
       };
       clients.set(clientId, client);
     }
@@ -260,16 +264,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
+  // Enhanced multilingual language detection
+  function detectAndUpdateLanguage(client: ClientConnection, language: string, confidence: number): string {
+    const timestamp = Date.now();
+    
+    // Add to language history
+    client.languageHistory.push({ language, confidence, timestamp });
+    
+    // Keep only last 10 language detections
+    if (client.languageHistory.length > 10) {
+      client.languageHistory = client.languageHistory.slice(-10);
+    }
+    
+    // Calculate language confidence with weighted recent history
+    const recentHistory = client.languageHistory.filter(h => timestamp - h.timestamp < 30000); // Last 30 seconds
+    const languageScores: { [key: string]: number } = {};
+    
+    recentHistory.forEach((entry, index) => {
+      const weight = (index + 1) / recentHistory.length; // More weight to recent detections
+      languageScores[entry.language] = (languageScores[entry.language] || 0) + (entry.confidence * weight);
+    });
+    
+    // Find most confident language
+    const mostConfidentLanguage = Object.keys(languageScores).reduce((a, b) => 
+      languageScores[a] > languageScores[b] ? a : b, language);
+    
+    // Switch language if confidence is high enough and different from current
+    if (mostConfidentLanguage !== client.detectedLanguage && languageScores[mostConfidentLanguage] > 0.7) {
+      console.log(`Language switch detected for client ${client.id}: ${client.detectedLanguage} → ${mostConfidentLanguage} (confidence: ${languageScores[mostConfidentLanguage].toFixed(2)})`);
+      client.detectedLanguage = mostConfidentLanguage;
+      
+      // Notify client of language switch
+      sendControlMessage(client, {
+        type: 'language_switch',
+        timestamp: Date.now(),
+        newLanguage: mostConfidentLanguage,
+        confidence: languageScores[mostConfidentLanguage],
+      });
+    }
+    
+    return client.detectedLanguage || mostConfidentLanguage;
+  }
+
   // Handle transcript updates from Deepgram
   function handleTranscriptUpdate(client: ClientConnection, transcriptData: any) {
     const { transcript, is_final, confidence, language } = transcriptData;
     
-    console.log(`Transcript update for client ${client.id}: "${transcript}" (final: ${is_final}, confidence: ${confidence}, language: ${language})`);
+    // Enhanced language detection
+    const detectedLang = detectAndUpdateLanguage(client, language || 'en', confidence || 0.8);
+    
+    console.log(`Transcript update for client ${client.id}: "${transcript}" (final: ${is_final}, confidence: ${confidence}, language: ${detectedLang})`);
     
     if (is_final) {
       client.currentTranscript = transcript;
-      client.detectedLanguage = language;
-      console.log(`Final transcript saved for client ${client.id}: "${transcript}" in language: ${language}`);
+      console.log(`Final transcript saved for client ${client.id}: "${transcript}" in language: ${detectedLang}`);
       
       sendControlMessage(client, {
         type: 'transcript_update',
@@ -277,7 +325,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         transcript,
         isFinal: true,
         confidence,
-        language: language || 'en',
+        language: detectedLang,
+        languageHistory: client.languageHistory.slice(-3), // Send recent language history
       });
     } else {
       sendControlMessage(client, {
@@ -286,7 +335,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         transcript,
         isFinal: false,
         confidence,
-        language: language || 'en',
+        language: detectedLang,
       });
     }
   }

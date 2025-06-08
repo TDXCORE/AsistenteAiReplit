@@ -20,6 +20,8 @@ export function useVoiceAssistant() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [audioLevel, setAudioLevel] = useState(0);
+  const [detectedLanguage, setDetectedLanguage] = useState('en');
+  const [languageHistory, setLanguageHistory] = useState<Array<{ language: string; confidence: number; timestamp: number }>>([]);
   
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
     totalLatency: 0,
@@ -124,6 +126,14 @@ export function useVoiceAssistant() {
         break;
 
       case 'transcript_update':
+        // Update detected language and language history
+        if (message.language) {
+          setDetectedLanguage(message.language);
+        }
+        if (message.languageHistory) {
+          setLanguageHistory(message.languageHistory);
+        }
+        
         if (message.isFinal) {
           const userMessage: ConversationMessage = {
             id: Date.now().toString(),
@@ -139,6 +149,12 @@ export function useVoiceAssistant() {
         } else {
           setCurrentTranscript(message.transcript);
         }
+        break;
+
+      case 'language_switch':
+        console.log(`Language switched to: ${message.newLanguage} (confidence: ${message.confidence})`);
+        setDetectedLanguage(message.newLanguage);
+        // Show language switch notification in UI
         break;
 
       case 'response_ready':
@@ -340,6 +356,8 @@ export function useVoiceAssistant() {
     sessionStats,
     usageStats,
     voiceSettings,
+    detectedLanguage,
+    languageHistory,
 
     // Actions
     startRecording,
