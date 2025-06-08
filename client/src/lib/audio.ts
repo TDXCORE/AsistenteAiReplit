@@ -55,7 +55,10 @@ export class AudioProcessor {
       // Handle audio data from worklet
       this.audioWorkletNode.port.onmessage = (event) => {
         if (event.data.type === 'audioData' && this.isRecording) {
-          this.onAudioData?.(event.data.audioData);
+          // Convert Int16Array to ArrayBuffer for WebSocket transmission
+          const int16Array = event.data.audioData;
+          const audioBuffer = int16Array.buffer.slice(int16Array.byteOffset, int16Array.byteOffset + int16Array.byteLength);
+          this.onAudioData?.(new Float32Array(int16Array.buffer, int16Array.byteOffset, int16Array.length));
         }
       };
 

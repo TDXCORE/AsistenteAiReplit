@@ -8,61 +8,73 @@ export class DeepgramService {
     if (!process.env.DEEPGRAM_API_KEY) {
       throw new Error('DEEPGRAM_API_KEY environment variable is required');
     }
-    this.client = createClient(process.env.DEEPGRAM_API_KEY);
+    
+    // Create client with explicit configuration to avoid auth issues
+    this.client = createClient(process.env.DEEPGRAM_API_KEY, {
+      global: { url: 'https://api.deepgram.com' }
+    });
   }
 
   async createLiveTranscription(clientId: string, onTranscript: (data: any) => void, onError: (error: any) => void) {
-    const connection = this.client.listen.live({
-      model: 'nova-2',
-      language: 'en-US',
-      smart_format: true,
-      interim_results: true,
-      utterance_end_ms: 500,
-      vad_events: true,
-      endpointing: 200,
-      encoding: 'linear16',
-      sample_rate: 16000,
-      channels: 1,
-    } as LiveSchema);
+    try {
+      console.log(`Creating Deepgram connection for client: ${clientId}`);
+      const connection = this.client.listen.live({
+        model: 'nova-2',
+        language: 'en-US',
+        smart_format: true,
+        interim_results: true,
+        utterance_end_ms: 1000,
+        vad_events: true,
+        endpointing: 300,
+        encoding: 'linear16',
+        sample_rate: 16000,
+        channels: 1,
+      } as LiveSchema);
 
-    connection.on(LiveTranscriptionEvents.Open, () => {
-      console.log(`Deepgram connection opened for client: ${clientId}`);
-    });
+      connection.on(LiveTranscriptionEvents.Open, () => {
+        console.log(`Deepgram connection opened for client: ${clientId}`);
+      });
 
-    connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-      console.log(`Deepgram transcript event for client ${clientId}:`, JSON.stringify(data, null, 2));
-      const transcript = data.channel?.alternatives?.[0]?.transcript;
-      if (transcript && transcript.trim()) {
-        console.log(`Processing transcript for client ${clientId}: "${transcript}" (final: ${data.is_final})`);
-        onTranscript({
-          transcript,
-          is_final: data.is_final,
-          confidence: data.channel?.alternatives?.[0]?.confidence || 0,
-          words: data.channel?.alternatives?.[0]?.words || [],
-        });
-      } else {
-        console.log(`Empty or invalid transcript for client ${clientId}:`, data);
-      }
-    });
+      connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+        console.log(`Deepgram transcript event for client ${clientId}:`, JSON.stringify(data, null, 2));
+        const transcript = data.channel?.alternatives?.[0]?.transcript;
+        if (transcript && transcript.trim()) {
+          console.log(`Processing transcript for client ${clientId}: "${transcript}" (final: ${data.is_final})`);
+          onTranscript({
+            transcript,
+            is_final: data.is_final,
+            confidence: data.channel?.alternatives?.[0]?.confidence || 0,
+            words: data.channel?.alternatives?.[0]?.words || [],
+          });
+        } else {
+          console.log(`Empty or invalid transcript for client ${clientId}:`, data);
+        }
+      });
 
-    connection.on(LiveTranscriptionEvents.Error, (error) => {
-      console.error(`Deepgram error for client ${clientId}:`, error);
-      onError(error);
-    });
+      connection.on(LiveTranscriptionEvents.Error, (error) => {
+        console.error(`Deepgram error for client ${clientId}:`, error);
+        onError(error);
+      });
 
-    connection.on(LiveTranscriptionEvents.Close, () => {
-      console.log(`Deepgram connection closed for client: ${clientId}`);
-      this.activeConnections.delete(clientId);
-    });
+      connection.on(LiveTranscriptionEvents.Close, () => {
+        console.log(`Deepgram connection closed for client: ${clientId}`);
+        this.activeConnections.delete(clientId);
+      });
 
-    this.activeConnections.set(clientId, connection);
-    return connection;
+      this.activeConnections.set(clientId, connection);
+      return connection;
+    } catch (error) {
+      console.error(`Failed to create Deepgram connection for client ${clientId}:`, error);
+      throw error;
+    }
   }
 
   sendAudioData(clientId: string, audioData: ArrayBuffer) {
     const connection = this.activeConnections.get(clientId);
-    if (connection) {
+    if (connection && connection.getReadyState() === 1) {
       connection.send(audioData);
+    } else {
+      console.warn(`Deepgram connection not ready for client: ${clientId}`);
     }
   }
 
@@ -74,13 +86,11 @@ export class DeepgramService {
     }
   }
 
-  // Test connection
   async testConnection(): Promise<boolean> {
     try {
       const response = await this.client.manage.getProjects();
-      return true; // If no error thrown, connection is working
+      return true;
     } catch (error) {
-      console.error('Deepgram test failed:', error);
       return false;
     }
   }

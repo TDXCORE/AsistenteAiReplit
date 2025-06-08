@@ -115,6 +115,10 @@ export function useVoiceAssistant() {
   // Handle incoming WebSocket messages
   const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
     switch (message.type) {
+      case 'server_ready':
+        console.log('Server connection confirmed');
+        break;
+
       case 'recording_started':
         setAssistantStatus('listening');
         break;
