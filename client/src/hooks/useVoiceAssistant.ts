@@ -73,20 +73,41 @@ export function useVoiceAssistant() {
 
   // Initialize WebSocket connection and audio processor
   useEffect(() => {
-    const wsManager = new VoiceWebSocketManager(clientIdRef.current);
-    wsManagerRef.current = wsManager;
+    let wsManager: VoiceWebSocketManager | null = null;
+    let isInitialized = false;
 
-    wsManager.setConnectionStatusHandler(setConnectionStatus);
-    wsManager.setMessageHandler(handleWebSocketMessage);
+    const initializeConnection = async () => {
+      try {
+        wsManager = new VoiceWebSocketManager(clientIdRef.current);
+        wsManagerRef.current = wsManager;
 
-    // Initialize audio processor
-    audioProcessor.initialize().catch(console.error);
+        wsManager.setConnectionStatusHandler(setConnectionStatus);
+        wsManager.setMessageHandler(handleWebSocketMessage);
 
-    // Connect WebSocket
-    wsManager.connect();
+        // Initialize audio processor
+        await audioProcessor.initialize();
+        console.log('Audio processor initialized successfully');
+
+        // Connect WebSocket with delay to ensure page is fully loaded
+        setTimeout(() => {
+          if (wsManager && !isInitialized) {
+            wsManager.connect();
+            isInitialized = true;
+          }
+        }, 1000);
+
+      } catch (error) {
+        console.error('Failed to initialize voice assistant:', error);
+      }
+    };
+
+    initializeConnection();
 
     return () => {
-      wsManager.disconnect();
+      isInitialized = false;
+      if (wsManager) {
+        wsManager.disconnect();
+      }
       audioProcessor.cleanup();
     };
   }, []);

@@ -26,7 +26,7 @@ export class VoiceWebSocketManager {
       this.disconnect();
       
       // Wait a moment before reconnecting
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
       
       // Connect sequentially to avoid race conditions
       await this.connectControlWebSocket();
@@ -51,7 +51,12 @@ export class VoiceWebSocketManager {
     return new Promise<void>((resolve, reject) => {
       if (!this.controlWs) return reject(new Error('Failed to create WebSocket'));
 
+      const timeout = setTimeout(() => {
+        reject(new Error('WebSocket connection timeout'));
+      }, 10000);
+
       this.controlWs.onopen = () => {
+        clearTimeout(timeout);
         console.log('Control WebSocket connected successfully');
         // Send initial connection confirmation
         this.controlWs?.send(JSON.stringify({
@@ -72,11 +77,13 @@ export class VoiceWebSocketManager {
       };
 
       this.controlWs.onclose = (event) => {
-        console.log('Control WebSocket disconnected');
+        console.log(`Control WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
         this.controlWs = null;
-        if (this.connectionStatus === 'connected' && !event.wasClean) {
+        if (this.connectionStatus === 'connected') {
           this.setConnectionStatus('disconnected');
-          this.scheduleReconnect();
+          if (event.code !== 1000) { // Only reconnect if not a normal closure
+            this.scheduleReconnect();
+          }
         }
       };
 
@@ -117,11 +124,13 @@ export class VoiceWebSocketManager {
       };
 
       this.audioWs.onclose = (event) => {
-        console.log('Audio WebSocket disconnected');
+        console.log(`Audio WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
         this.audioWs = null;
-        if (this.connectionStatus === 'connected' && !event.wasClean) {
+        if (this.connectionStatus === 'connected') {
           this.setConnectionStatus('disconnected');
-          this.scheduleReconnect();
+          if (event.code !== 1000) { // Only reconnect if not a normal closure
+            this.scheduleReconnect();
+          }
         }
       };
 
@@ -202,17 +211,21 @@ export class VoiceWebSocketManager {
   }
 
   disconnect() {
-    this.setConnectionStatus('disconnected');
-    
-    if (this.controlWs && this.controlWs.readyState === WebSocket.OPEN) {
-      this.controlWs.close(1000, 'Client disconnect');
+    if (this.controlWs) {
+      if (this.controlWs.readyState === WebSocket.OPEN || this.controlWs.readyState === WebSocket.CONNECTING) {
+        this.controlWs.close(1000, 'Client disconnect');
+      }
       this.controlWs = null;
     }
     
-    if (this.audioWs && this.audioWs.readyState === WebSocket.OPEN) {
-      this.audioWs.close(1000, 'Client disconnect');
+    if (this.audioWs) {
+      if (this.audioWs.readyState === WebSocket.OPEN || this.audioWs.readyState === WebSocket.CONNECTING) {
+        this.audioWs.close(1000, 'Client disconnect');
+      }
       this.audioWs = null;
     }
+    
+    this.setConnectionStatus('disconnected');
   }
 
   getConnectionStatus(): ConnectionStatus {

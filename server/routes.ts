@@ -97,8 +97,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ws.binaryType = 'arraybuffer';
       
       ws.on('message', async (data) => {
-        if (client!.isRecording && data instanceof ArrayBuffer) {
-          await processAudioChunk(client!, data);
+        if (data instanceof ArrayBuffer) {
+          if (client!.isRecording) {
+            await processAudioChunk(client!, data);
+          }
+        } else {
+          // Handle text messages from audio WebSocket (like connection confirmation)
+          try {
+            const message = JSON.parse(data.toString());
+            if (message.type === 'audio_connection_ready') {
+              console.log(`Audio connection ready for client ${client!.id}`);
+            }
+          } catch (error) {
+            console.log(`Received non-JSON data on audio WebSocket: ${data.toString().substring(0, 100)}`);
+          }
         }
       });
     }
