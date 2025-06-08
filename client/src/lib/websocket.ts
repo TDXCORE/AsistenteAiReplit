@@ -44,7 +44,11 @@ export class VoiceWebSocketManager {
 
   private async connectControlWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws?clientId=${this.clientId}&type=control`;
+    // Handle Replit domain differences
+    const host = window.location.host.includes('.replit.app') || window.location.host.includes('.replit.dev') 
+      ? window.location.host 
+      : window.location.host;
+    const wsUrl = `${protocol}//${host}/ws?clientId=${this.clientId}&type=control`;
     
     this.controlWs = new WebSocket(wsUrl);
     
@@ -96,7 +100,11 @@ export class VoiceWebSocketManager {
 
   private async connectAudioWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws?clientId=${this.clientId}&type=audio`;
+    // Handle Replit domain differences
+    const host = window.location.host.includes('.replit.app') || window.location.host.includes('.replit.dev') 
+      ? window.location.host 
+      : window.location.host;
+    const wsUrl = `${protocol}//${host}/ws?clientId=${this.clientId}&type=audio`;
     
     this.audioWs = new WebSocket(wsUrl);
     this.audioWs.binaryType = 'arraybuffer';

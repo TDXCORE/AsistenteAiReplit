@@ -15,6 +15,7 @@ interface ClientConnection {
   audioWs?: WebSocket;
   sessionId?: number;
   isRecording: boolean;
+  isProcessing?: boolean;
   startTime?: number;
   deepgramConnection?: any;
   currentTranscript?: string;
@@ -74,6 +75,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       client = {
         id: clientId,
         isRecording: false,
+        isProcessing: false,
         languageHistory: [],
         audioBuffer: [],
       };
@@ -342,6 +344,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Complete voice processing pipeline: STT → LLM → TTS
   async function processCompleteVoicePipeline(client: ClientConnection, transcript: string) {
+    // Prevent duplicate processing
+    if (client.isProcessing) {
+      console.log(`Skipping duplicate processing for client ${client.id}`);
+      return;
+    }
+    
+    client.isProcessing = true;
     console.log(`Starting voice processing pipeline for client ${client.id} with transcript: "${transcript}"`);
     const startTime = Date.now();
     const sttLatency = Date.now() - (client.startTime || Date.now());
@@ -454,6 +463,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: Date.now(),
         error: 'Failed to process voice request',
       });
+    } finally {
+      // Always reset processing flag
+      client.isProcessing = false;
     }
   }
 
