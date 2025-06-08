@@ -334,15 +334,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const sttLatency = Date.now() - (client.startTime || Date.now());
 
     try {
-      // Step 1: Generate LLM response
-      console.log(`Generating LLM response for client ${client.id}`);
+      // Step 1: Generate LLM response in detected language
+      console.log(`Generating LLM response for client ${client.id} in language: ${client.detectedLanguage}`);
       const llmStartTime = Date.now();
-      const response = await groqService.generateResponse(transcript);
+      const response = await groqService.generateResponse(transcript, {
+        language: client.detectedLanguage || 'en',
+        model: 'llama-3.1-8b-instant',
+        maxTokens: 75,
+        temperature: 0.5,
+      });
       const llmLatency = Date.now() - llmStartTime;
       console.log(`LLM response generated in ${llmLatency}ms: "${response}"`);
 
-      // Step 2: Generate TTS audio
-      console.log(`Generating TTS audio for client ${client.id}`);
+      // Step 2: Generate TTS audio in detected language
+      console.log(`Generating TTS audio for client ${client.id} in language: ${client.detectedLanguage}`);
       const ttsStartTime = Date.now();
       const audioBuffer = await elevenLabsService.generateSpeech(response);
       const ttsLatency = Date.now() - ttsStartTime;
@@ -359,7 +364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           content: transcript,
           latency: sttLatency,
           confidence: 0.95,
-          language: 'en-US',
+          language: client.detectedLanguage || 'en',
           cost: 0.002,
         });
 
