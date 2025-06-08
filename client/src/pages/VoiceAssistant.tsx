@@ -7,6 +7,7 @@ import { VoiceSettings } from '../components/VoiceSettings';
 import { BudgetMonitor } from '../components/BudgetMonitor';
 import { SystemStatus } from '../components/SystemStatus';
 import { IntegrationTest } from '../components/IntegrationTest';
+import { LanguageIndicator } from '../components/LanguageIndicator';
 import { Mic, Settings } from 'lucide-react';
 
 export default function VoiceAssistant() {
@@ -22,6 +23,8 @@ export default function VoiceAssistant() {
     sessionStats,
     usageStats,
     voiceSettings,
+    detectedLanguage,
+    languageHistory,
     startRecording,
     stopRecording,
     interrupt,
@@ -126,13 +129,12 @@ export default function VoiceAssistant() {
             </div>
             
             <div className="flex items-center space-x-3">
-              {/* Language Selector */}
-              <select className="text-sm border border-gray-300 rounded-md px-3 py-1.5 bg-white focus:ring-2 focus:ring-primary focus:border-transparent">
-                <option value="auto">Auto-detect</option>
-                <option value="en">English</option>
-                <option value="es">Español</option>
-                <option value="fr">Français</option>
-              </select>
+              {/* Language Indicator */}
+              <LanguageIndicator 
+                detectedLanguage={detectedLanguage}
+                languageHistory={languageHistory}
+                isRecording={isRecording}
+              />
               
               {/* Settings Button */}
               <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">

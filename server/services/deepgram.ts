@@ -20,7 +20,7 @@ export class DeepgramService {
       console.log(`Creating Deepgram connection for client: ${clientId}`);
       const connection = this.client.listen.live({
         model: 'nova-2',
-        detect_language: true,
+        language: ['en', 'es', 'fr', 'de', 'it', 'pt'],
         smart_format: true,
         interim_results: true,
         utterance_end_ms: 1000,
