@@ -11,6 +11,7 @@ export class VoiceWebSocketManager {
   private onConnectionStatusChange?: (status: ConnectionStatus) => void;
   private isPublicDomain = false;
   private pollInterval?: NodeJS.Timeout;
+  private lastMessageId = 0;
 
   constructor(clientId: string) {
     this.clientId = clientId;
@@ -54,31 +55,22 @@ export class VoiceWebSocketManager {
   private async connectControlWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws?clientId=${this.clientId}&type=control`;
-    
-    this.controlWs = new WebSocket(wsUrl);
-    
-    return new Promise<void>((resolve, reject) => {
-      if (!this.controlWs) return reject(new Error('Failed to create WebSocket'));
 
-      const timeout = setTimeout(() => {
-        reject(new Error('WebSocket connection timeout'));
-      }, 10000);
+    return new Promise<void>((resolve, reject) => {
+      this.controlWs = new WebSocket(wsUrl);
 
       this.controlWs.onopen = () => {
-        clearTimeout(timeout);
         console.log('Control WebSocket connected successfully');
-        // Send initial connection confirmation
-        this.controlWs?.send(JSON.stringify({
-          type: 'connection_ready',
-          timestamp: Date.now(),
-          clientId: this.clientId
-        }));
         resolve();
       };
 
       this.controlWs.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          if (message.type === 'server_connected') {
+            console.log('Server connection confirmed');
+            return;
+          }
           this.onMessage?.(message);
         } catch (error) {
           console.error('Failed to parse control message:', error);
@@ -88,11 +80,8 @@ export class VoiceWebSocketManager {
       this.controlWs.onclose = (event) => {
         console.log(`Control WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
         this.controlWs = null;
-        if (this.connectionStatus === 'connected') {
-          this.setConnectionStatus('disconnected');
-          if (event.code !== 1000) { // Only reconnect if not a normal closure
-            this.scheduleReconnect();
-          }
+        if (event.code !== 1000) {
+          this.scheduleReconnect();
         }
       };
 
@@ -106,28 +95,17 @@ export class VoiceWebSocketManager {
   private async connectAudioWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws?clientId=${this.clientId}&type=audio`;
-    
-    this.audioWs = new WebSocket(wsUrl);
-    this.audioWs.binaryType = 'arraybuffer';
-    
+
     return new Promise<void>((resolve, reject) => {
-      if (!this.audioWs) return reject(new Error('Failed to create WebSocket'));
+      this.audioWs = new WebSocket(wsUrl);
 
       this.audioWs.onopen = () => {
         console.log('Audio WebSocket connected successfully');
-        // Send initial connection confirmation
-        const confirmationBuffer = new TextEncoder().encode(JSON.stringify({
-          type: 'audio_connection_ready',
-          timestamp: Date.now(),
-          clientId: this.clientId
-        }));
-        this.audioWs?.send(confirmationBuffer);
         resolve();
       };
 
       this.audioWs.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
-          // Handle incoming audio data (TTS response)
           this.playAudioResponse(event.data);
         }
       };
@@ -135,11 +113,8 @@ export class VoiceWebSocketManager {
       this.audioWs.onclose = (event) => {
         console.log(`Audio WebSocket disconnected (code: ${event.code}, reason: ${event.reason})`);
         this.audioWs = null;
-        if (this.connectionStatus === 'connected') {
-          this.setConnectionStatus('disconnected');
-          if (event.code !== 1000) { // Only reconnect if not a normal closure
-            this.scheduleReconnect();
-          }
+        if (event.code !== 1000) {
+          this.scheduleReconnect();
         }
       };
 
@@ -150,20 +125,57 @@ export class VoiceWebSocketManager {
     });
   }
 
+  private startHttpPolling() {
+    // Initialize client on server
+    fetch(`/api/messages/${this.clientId}`, { 
+      method: 'POST', 
+      body: JSON.stringify({ type: 'init' }), 
+      headers: { 'Content-Type': 'application/json' } 
+    });
+    
+    // Start polling for messages
+    this.pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/messages/${this.clientId}?after=${this.lastMessageId}`);
+        if (response.ok) {
+          const messages = await response.json();
+          messages.forEach((message: any) => {
+            if (message.id > this.lastMessageId) {
+              this.lastMessageId = message.id;
+              this.onMessage?.(message);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('HTTP polling error:', error);
+      }
+    }, 500);
+  }
+
   sendControlMessage(message: WebSocketMessage) {
-    if (this.controlWs && this.controlWs.readyState === WebSocket.OPEN) {
+    if (this.isPublicDomain) {
+      fetch(`/api/messages/${this.clientId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message)
+      }).catch(error => console.error('Failed to send control message:', error));
+    } else if (this.controlWs && this.controlWs.readyState === WebSocket.OPEN) {
       this.controlWs.send(JSON.stringify(message));
-    } else {
-      console.warn('Control WebSocket not connected');
     }
   }
 
   sendAudioData(audioData: Float32Array) {
-    if (this.audioWs && this.audioWs.readyState === WebSocket.OPEN) {
+    if (this.isPublicDomain) {
+      const buffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
+      fetch(`/api/audio/${this.clientId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: buffer
+      }).catch(error => console.error('Failed to send audio data:', error));
+    } else if (this.audioWs && this.audioWs.readyState === WebSocket.OPEN) {
       // Convert Float32Array to PCM16 for Deepgram
       const pcm16 = new Int16Array(audioData.length);
       for (let i = 0; i < audioData.length; i++) {
-        // Clamp values to [-1, 1] and convert to 16-bit signed integer
         const clamped = Math.max(-1, Math.min(1, audioData[i]));
         pcm16[i] = clamped * 32767;
       }
@@ -172,7 +184,6 @@ export class VoiceWebSocketManager {
   }
 
   private playAudioResponse(audioData: ArrayBuffer) {
-    // Create audio buffer and play TTS response
     const audioContext = new AudioContext();
     
     audioContext.decodeAudioData(audioData)
@@ -204,7 +215,6 @@ export class VoiceWebSocketManager {
     
     setTimeout(() => {
       console.log(`Reconnection attempt ${this.reconnectAttempts}`);
-      // Reset connection status before attempting to reconnect
       this.controlWs = null;
       this.audioWs = null;
       this.connect();
@@ -217,55 +227,6 @@ export class VoiceWebSocketManager {
 
   setConnectionStatusHandler(handler: (status: ConnectionStatus) => void) {
     this.onConnectionStatusChange = handler;
-  }
-
-  private startHttpPolling() {
-    // Initialize client on server
-    fetch(`/api/messages/${this.clientId}`, { 
-      method: 'POST', 
-      body: JSON.stringify({ type: 'init' }), 
-      headers: { 'Content-Type': 'application/json' } 
-    });
-    
-    // Start polling for messages
-    this.pollInterval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/messages/${this.clientId}`);
-        if (response.ok) {
-          const messages = await response.json();
-          messages.forEach((message: any) => {
-            this.onMessage?.(message);
-          });
-        }
-      } catch (error) {
-        console.error('HTTP polling error:', error);
-      }
-    }, 500);
-  }
-
-  sendControlMessage(message: WebSocketMessage) {
-    if (this.isPublicDomain) {
-      fetch(`/api/messages/${this.clientId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(message)
-      });
-    } else if (this.controlWs && this.controlWs.readyState === WebSocket.OPEN) {
-      this.controlWs.send(JSON.stringify(message));
-    }
-  }
-
-  sendAudioData(audioData: Float32Array) {
-    if (this.isPublicDomain) {
-      const buffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
-      fetch(`/api/audio/${this.clientId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: buffer
-      });
-    } else if (this.audioWs && this.audioWs.readyState === WebSocket.OPEN) {
-      this.audioWs.send(audioData.buffer);
-    }
   }
 
   disconnect() {

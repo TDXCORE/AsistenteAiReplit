@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
@@ -524,21 +525,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function sendControlMessage(client: ClientConnection, message: any) {
     if (client.controlWs && client.controlWs.readyState === WebSocket.OPEN) {
       client.controlWs.send(JSON.stringify(message));
+    } else {
+      // Store in message queue for HTTP polling
+      const messageWithId = { ...message, id: messageIdCounter++ };
+      if (!messageQueues.has(client.id)) {
+        messageQueues.set(client.id, []);
+      }
+      messageQueues.get(client.id)!.push(messageWithId);
+      
+      // Keep only last 50 messages to prevent memory issues
+      const queue = messageQueues.get(client.id)!;
+      if (queue.length > 50) {
+        queue.splice(0, queue.length - 50);
+      }
     }
   }
 
   // Fallback HTTP endpoints for when WebSockets don't work in public domains
   const messageQueues = new Map<string, any[]>();
+  let messageIdCounter = 1;
   
   app.post('/api/messages/:clientId', async (req, res) => {
     const { clientId } = req.params;
     const message = req.body;
     
     try {
-      const client = clients.get(clientId);
-      if (client) {
-        await handleControlMessage(client, message);
+      let client = clients.get(clientId);
+      if (!client) {
+        // Create a new HTTP-only client
+        client = {
+          id: clientId,
+          isRecording: false,
+          languageHistory: [],
+          audioBuffer: []
+        };
+        clients.set(clientId, client);
+        console.log(`HTTP client created: ${clientId}`);
       }
+      
+      await handleControlMessage(client, message);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to process message' });
@@ -554,17 +579,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(newMessages);
   });
 
-  app.post('/api/audio/:clientId', async (req, res) => {
+  app.post('/api/audio/:clientId', express.raw({ type: 'application/octet-stream' }), async (req, res) => {
     const { clientId } = req.params;
     const audioData = req.body;
     
     try {
-      const client = clients.get(clientId);
-      if (client && audioData instanceof ArrayBuffer) {
-        await processAudioChunk(client, audioData);
+      let client = clients.get(clientId);
+      if (!client) {
+        // Create a new HTTP-only client for audio
+        client = {
+          id: clientId,
+          isRecording: false,
+          languageHistory: [],
+          audioBuffer: []
+        };
+        clients.set(clientId, client);
+        console.log(`HTTP audio client created: ${clientId}`);
+      }
+      
+      if (audioData && Buffer.isBuffer(audioData)) {
+        const arrayBuffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
+        await processAudioChunk(client, arrayBuffer);
       }
       res.json({ success: true });
     } catch (error) {
+      console.error('Audio processing error:', error);
       res.status(500).json({ error: 'Failed to process audio' });
     }
   });
