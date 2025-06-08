@@ -219,8 +219,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function handleTranscriptUpdate(client: ClientConnection, transcriptData: any) {
     const { transcript, is_final, confidence } = transcriptData;
     
+    console.log(`Transcript update for client ${client.id}: "${transcript}" (final: ${is_final}, confidence: ${confidence})`);
+    
     if (is_final) {
       client.currentTranscript = transcript;
+      console.log(`Final transcript saved for client ${client.id}: "${transcript}"`);
       
       sendControlMessage(client, {
         type: 'transcript_update',
@@ -244,9 +247,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Process audio chunks - stream to Deepgram
   async function processAudioChunk(client: ClientConnection, audioData: ArrayBuffer) {
+    console.log(`Processing audio chunk for client ${client.id}: ${audioData.byteLength} bytes`);
+    
     if (client.isRecording && client.deepgramConnection) {
       // Send audio data to Deepgram for real-time transcription
-      deepgramService.sendAudioData(client.id, audioData);
+      try {
+        deepgramService.sendAudioData(client.id, audioData);
+        console.log(`Sent audio data to Deepgram for client ${client.id}`);
+      } catch (error) {
+        console.error(`Failed to send audio to Deepgram for client ${client.id}:`, error);
+      }
     }
 
     // Calculate audio level for visualization
@@ -255,7 +265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     for (let i = 0; i < audioArray.length; i++) {
       sum += Math.abs(audioArray[i]);
     }
-    const audioLevel = (sum / audioArray.length / 32768) * 100;
+    const audioLevel = Math.min(100, (sum / audioArray.length / 32768) * 100);
     
     sendControlMessage(client, {
       type: 'audio_level',
@@ -266,21 +276,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Complete voice processing pipeline: STT → LLM → TTS
   async function processCompleteVoicePipeline(client: ClientConnection, transcript: string) {
+    console.log(`Starting voice processing pipeline for client ${client.id} with transcript: "${transcript}"`);
     const startTime = Date.now();
     const sttLatency = Date.now() - (client.startTime || Date.now());
 
     try {
       // Step 1: Generate LLM response
+      console.log(`Generating LLM response for client ${client.id}`);
       const llmStartTime = Date.now();
       const response = await groqService.generateResponse(transcript);
       const llmLatency = Date.now() - llmStartTime;
+      console.log(`LLM response generated in ${llmLatency}ms: "${response}"`);
 
       // Step 2: Generate TTS audio
+      console.log(`Generating TTS audio for client ${client.id}`);
       const ttsStartTime = Date.now();
       const audioBuffer = await elevenLabsService.generateSpeech(response);
       const ttsLatency = Date.now() - ttsStartTime;
+      console.log(`TTS audio generated in ${ttsLatency}ms (${audioBuffer.byteLength} bytes)`);
 
       const totalLatency = Date.now() - startTime;
+      console.log(`Complete pipeline finished in ${totalLatency}ms for client ${client.id}`);
 
       // Save conversation messages
       if (client.sessionId) {

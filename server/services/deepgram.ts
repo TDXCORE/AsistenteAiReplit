@@ -30,14 +30,18 @@ export class DeepgramService {
     });
 
     connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+      console.log(`Deepgram transcript event for client ${clientId}:`, JSON.stringify(data, null, 2));
       const transcript = data.channel?.alternatives?.[0]?.transcript;
       if (transcript && transcript.trim()) {
+        console.log(`Processing transcript for client ${clientId}: "${transcript}" (final: ${data.is_final})`);
         onTranscript({
           transcript,
           is_final: data.is_final,
           confidence: data.channel?.alternatives?.[0]?.confidence || 0,
           words: data.channel?.alternatives?.[0]?.words || [],
         });
+      } else {
+        console.log(`Empty or invalid transcript for client ${clientId}:`, data);
       }
     });
 
