@@ -264,46 +264,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  // Enhanced multilingual language detection
+  // Simple Spanish language detection
   function detectAndUpdateLanguage(client: ClientConnection, language: string, confidence: number): string {
-    const timestamp = Date.now();
-    
-    // Add to language history
-    client.languageHistory.push({ language, confidence, timestamp });
-    
-    // Keep only last 10 language detections
-    if (client.languageHistory.length > 10) {
-      client.languageHistory = client.languageHistory.slice(-10);
-    }
-    
-    // Calculate language confidence with weighted recent history
-    const recentHistory = client.languageHistory.filter(h => timestamp - h.timestamp < 30000); // Last 30 seconds
-    const languageScores: { [key: string]: number } = {};
-    
-    recentHistory.forEach((entry, index) => {
-      const weight = (index + 1) / recentHistory.length; // More weight to recent detections
-      languageScores[entry.language] = (languageScores[entry.language] || 0) + (entry.confidence * weight);
-    });
-    
-    // Find most confident language
-    const mostConfidentLanguage = Object.keys(languageScores).reduce((a, b) => 
-      languageScores[a] > languageScores[b] ? a : b, language);
-    
-    // Switch language if confidence is high enough and different from current
-    if (mostConfidentLanguage !== client.detectedLanguage && languageScores[mostConfidentLanguage] > 0.7) {
-      console.log(`Language switch detected for client ${client.id}: ${client.detectedLanguage} → ${mostConfidentLanguage} (confidence: ${languageScores[mostConfidentLanguage].toFixed(2)})`);
-      client.detectedLanguage = mostConfidentLanguage;
-      
-      // Notify client of language switch
-      sendControlMessage(client, {
-        type: 'language_switch',
-        timestamp: Date.now(),
-        newLanguage: mostConfidentLanguage,
-        confidence: languageScores[mostConfidentLanguage],
-      });
-    }
-    
-    return client.detectedLanguage || mostConfidentLanguage;
+    client.detectedLanguage = 'es'; // Always use Spanish
+    return 'es';
   }
 
   // Handle transcript updates from Deepgram
@@ -383,11 +347,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const sttLatency = Date.now() - (client.startTime || Date.now());
 
     try {
-      // Step 1: Generate LLM response in detected language
-      console.log(`Generating LLM response for client ${client.id} in language: ${client.detectedLanguage}`);
+      // Step 1: Generate LLM response in Spanish
+      console.log(`Generating LLM response for client ${client.id} in Spanish`);
       const llmStartTime = Date.now();
       const response = await groqService.generateResponse(transcript, {
-        language: client.detectedLanguage || 'en',
+        language: 'es',
         model: 'llama-3.1-8b-instant',
         maxTokens: 75,
         temperature: 0.5,
@@ -413,7 +377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           content: transcript,
           latency: sttLatency,
           confidence: 0.95,
-          language: client.detectedLanguage || 'en',
+          language: 'es',
           cost: 0.002,
         });
 

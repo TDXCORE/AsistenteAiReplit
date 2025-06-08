@@ -19,12 +19,10 @@ export class DeepgramService {
     try {
       console.log(`Creating Deepgram connection for client: ${clientId}`);
       const connection = this.client.listen.live({
-        model: 'nova-2',
-        language: ['en', 'es', 'fr', 'de', 'it', 'pt'],
-        smart_format: true,
+        model: 'base',
+        language: 'es',
         interim_results: true,
         utterance_end_ms: 1000,
-        vad_events: true,
         endpointing: 300,
         encoding: 'linear16',
         sample_rate: 48000,

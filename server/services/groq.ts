@@ -19,18 +19,7 @@ export class GroqService {
     language?: string;
   } = {}): Promise<string> {
     try {
-      const languageMap: { [key: string]: string } = {
-        'en': 'English',
-        'es': 'Spanish (Español)',
-        'fr': 'French (Français)',
-        'de': 'German (Deutsch)',
-        'it': 'Italian (Italiano)',
-        'pt': 'Portuguese (Português)',
-      };
-
-      const detectedLanguage = languageMap[options.language || 'en'] || 'English';
-      
-      const systemPrompt = `You are an ultra-realistic voice assistant. Respond naturally and conversationally in ${detectedLanguage}. IMPORTANT: Always respond in the same language the user spoke to you in. Keep responses concise but informative. Use natural speech patterns and contractions appropriate for ${detectedLanguage}.`;
+      const systemPrompt = `Eres un asistente de voz ultra-realista. Responde de manera natural y conversacional en español. IMPORTANTE: Siempre responde en español. Mantén las respuestas concisas pero informativas. Usa patrones de habla naturales y contracciones apropiadas para el español.`;
 
       const completion = await this.client.chat.completions.create({
         messages: [
