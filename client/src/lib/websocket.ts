@@ -15,15 +15,26 @@ export class VoiceWebSocketManager {
   }
 
   async connect() {
+    if (this.connectionStatus === 'connecting') {
+      return; // Prevent multiple simultaneous connection attempts
+    }
+    
     this.setConnectionStatus('connecting');
     
     try {
+      // Close any existing connections first
+      this.disconnect();
+      
+      // Wait a moment before reconnecting
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       // Connect sequentially to avoid race conditions
       await this.connectControlWebSocket();
       await this.connectAudioWebSocket();
       
       this.setConnectionStatus('connected');
       this.reconnectAttempts = 0;
+      console.log('WebSocket connections established successfully');
     } catch (error) {
       console.error('Failed to connect WebSockets:', error);
       this.setConnectionStatus('error');
@@ -54,10 +65,10 @@ export class VoiceWebSocketManager {
         }
       };
 
-      this.controlWs.onclose = () => {
+      this.controlWs.onclose = (event) => {
         console.log('Control WebSocket disconnected');
         this.controlWs = null;
-        if (this.connectionStatus === 'connected') {
+        if (this.connectionStatus === 'connected' && !event.wasClean) {
           this.setConnectionStatus('disconnected');
           this.scheduleReconnect();
         }
@@ -92,9 +103,13 @@ export class VoiceWebSocketManager {
         }
       };
 
-      this.audioWs.onclose = () => {
+      this.audioWs.onclose = (event) => {
         console.log('Audio WebSocket disconnected');
         this.audioWs = null;
+        if (this.connectionStatus === 'connected' && !event.wasClean) {
+          this.setConnectionStatus('disconnected');
+          this.scheduleReconnect();
+        }
       };
 
       this.audioWs.onerror = (error) => {
@@ -154,10 +169,13 @@ export class VoiceWebSocketManager {
     }
 
     this.reconnectAttempts++;
-    const delay = Math.min(500 * this.reconnectAttempts, 2000);
+    const delay = Math.min(1000 + (this.reconnectAttempts * 500), 5000);
     
     setTimeout(() => {
       console.log(`Reconnection attempt ${this.reconnectAttempts}`);
+      // Reset connection status before attempting to reconnect
+      this.controlWs = null;
+      this.audioWs = null;
       this.connect();
     }, delay);
   }
@@ -173,13 +191,13 @@ export class VoiceWebSocketManager {
   disconnect() {
     this.setConnectionStatus('disconnected');
     
-    if (this.controlWs) {
-      this.controlWs.close();
+    if (this.controlWs && this.controlWs.readyState === WebSocket.OPEN) {
+      this.controlWs.close(1000, 'Client disconnect');
       this.controlWs = null;
     }
     
-    if (this.audioWs) {
-      this.audioWs.close();
+    if (this.audioWs && this.audioWs.readyState === WebSocket.OPEN) {
+      this.audioWs.close(1000, 'Client disconnect');
       this.audioWs = null;
     }
   }

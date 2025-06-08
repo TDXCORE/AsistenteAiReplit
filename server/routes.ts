@@ -364,7 +364,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Send audio data via audio WebSocket
       if (client.audioWs && client.audioWs.readyState === WebSocket.OPEN) {
+        console.log(`Sending ${audioBuffer.byteLength} bytes of TTS audio to client ${client.id}`);
         client.audioWs.send(audioBuffer);
+        
+        // Notify client that audio is ready
+        sendControlMessage(client, {
+          type: 'audio_ready',
+          timestamp: Date.now(),
+          audioLength: audioBuffer.byteLength,
+        });
+      } else {
+        console.warn(`Audio WebSocket not ready for client ${client.id}, state: ${client.audioWs?.readyState}`);
       }
 
     } catch (error) {
