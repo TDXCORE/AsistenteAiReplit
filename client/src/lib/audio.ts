@@ -1,0 +1,142 @@
+export class AudioProcessor {
+  private audioContext: AudioContext | null = null;
+  private mediaStream: MediaStream | null = null;
+  private audioWorkletNode: AudioWorkletNode | null = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private analyserNode: AnalyserNode | null = null;
+  private isRecording = false;
+  private onAudioData?: (data: Float32Array) => void;
+  private onAudioLevel?: (level: number) => void;
+
+  async initialize() {
+    try {
+      // Create AudioContext
+      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+        sampleRate: 16000,
+        latencyHint: 'interactive',
+      });
+
+      // Load audio worklet processor
+      await this.audioContext.audioWorklet.addModule('/audio-processor.js');
+
+      // Get microphone stream
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      // Create audio nodes
+      this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
+      this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
+      this.analyserNode = this.audioContext.createAnalyser();
+
+      // Configure analyser
+      this.analyserNode.fftSize = 256;
+      this.analyserNode.smoothingTimeConstant = 0.8;
+
+      // Connect audio graph
+      this.sourceNode.connect(this.audioWorkletNode);
+      this.sourceNode.connect(this.analyserNode);
+      this.audioWorkletNode.connect(this.audioContext.destination);
+
+      // Handle audio data from worklet
+      this.audioWorkletNode.port.onmessage = (event) => {
+        if (event.data.type === 'audioData' && this.isRecording) {
+          this.onAudioData?.(event.data.audioData);
+        }
+      };
+
+      console.log('Audio processor initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize audio processor:', error);
+      throw error;
+    }
+  }
+
+  startRecording(onAudioData: (data: Float32Array) => void, onAudioLevel?: (level: number) => void) {
+    if (!this.audioContext || !this.audioWorkletNode) {
+      throw new Error('Audio processor not initialized');
+    }
+
+    this.isRecording = true;
+    this.onAudioData = onAudioData;
+    this.onAudioLevel = onAudioLevel;
+
+    // Start audio worklet processing
+    this.audioWorkletNode.port.postMessage({ type: 'start' });
+
+    // Start audio level monitoring
+    if (onAudioLevel) {
+      this.startAudioLevelMonitoring();
+    }
+  }
+
+  stopRecording() {
+    this.isRecording = false;
+    
+    if (this.audioWorkletNode) {
+      this.audioWorkletNode.port.postMessage({ type: 'stop' });
+    }
+  }
+
+  private startAudioLevelMonitoring() {
+    if (!this.analyserNode) return;
+
+    const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount);
+    
+    const updateLevel = () => {
+      if (!this.isRecording || !this.analyserNode) return;
+
+      this.analyserNode.getByteFrequencyData(dataArray);
+      
+      // Calculate RMS level
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+      const level = (rms / 255) * 100;
+
+      this.onAudioLevel?.(level);
+      
+      if (this.isRecording) {
+        requestAnimationFrame(updateLevel);
+      }
+    };
+
+    updateLevel();
+  }
+
+  getAnalyserData(): Uint8Array | null {
+    if (!this.analyserNode) return null;
+    
+    const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount);
+    this.analyserNode.getByteFrequencyData(dataArray);
+    return dataArray;
+  }
+
+  cleanup() {
+    this.stopRecording();
+
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(track => track.stop());
+    }
+
+    if (this.audioContext) {
+      this.audioContext.close();
+    }
+
+    this.audioContext = null;
+    this.mediaStream = null;
+    this.audioWorkletNode = null;
+    this.sourceNode = null;
+    this.analyserNode = null;
+  }
+}
+
+export const audioProcessor = new AudioProcessor();
