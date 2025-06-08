@@ -1,54 +1,39 @@
-import { ElevenLabs } from 'elevenlabs';
-
 export class ElevenLabsService {
-  private client: ElevenLabs;
+  private apiKey: string;
 
   constructor() {
     if (!process.env.ELEVENLABS_API_KEY) {
       throw new Error('ELEVENLABS_API_KEY environment variable is required');
     }
-    this.client = new ElevenLabsApi({
-      apiKey: process.env.ELEVENLABS_API_KEY,
-    });
-    this.streamingClient = new ElevenLabsStreamingApi({
-      apiKey: process.env.ELEVENLABS_API_KEY,
-    });
+    this.apiKey = process.env.ELEVENLABS_API_KEY;
   }
 
   async generateSpeech(text: string, voiceId: string = 'pNInz6obpgDQGcFmaJgB'): Promise<ArrayBuffer> {
     try {
-      const audio = await this.client.textToSpeech.generate({
-        voice_id: voiceId,
-        text,
-        model_id: 'eleven_turbo_v2',
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.0,
-          use_speaker_boost: true,
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': this.apiKey,
         },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_turbo_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.0,
+            use_speaker_boost: true,
+          },
+        }),
       });
 
-      // Convert stream to ArrayBuffer
-      const chunks: Uint8Array[] = [];
-      const reader = audio.getReader();
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
+      if (!response.ok) {
+        throw new Error(`ElevenLabs API error: ${response.status} ${response.statusText}`);
       }
 
-      const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
-      const result = new Uint8Array(totalLength);
-      let offset = 0;
-      
-      for (const chunk of chunks) {
-        result.set(chunk, offset);
-        offset += chunk.length;
-      }
-
-      return result.buffer;
+      return await response.arrayBuffer();
     } catch (error) {
       console.error('ElevenLabs TTS error:', error);
       throw new Error('Failed to generate speech with ElevenLabs');
@@ -61,20 +46,34 @@ export class ElevenLabsService {
     voiceId: string = 'pNInz6obpgDQGcFmaJgB'
   ): Promise<void> {
     try {
-      const stream = await this.streamingClient.textToSpeechStream({
-        voice_id: voiceId,
-        text,
-        model_id: 'eleven_turbo_v2',
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.0,
-          use_speaker_boost: true,
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': this.apiKey,
         },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_turbo_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.0,
+            use_speaker_boost: true,
+          },
+        }),
       });
 
-      const reader = stream.getReader();
-      
+      if (!response.ok) {
+        throw new Error(`ElevenLabs streaming API error: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Failed to get stream reader');
+      }
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -88,8 +87,18 @@ export class ElevenLabsService {
 
   async getVoices() {
     try {
-      const response = await this.client.voices.getAll();
-      return response.voices;
+      const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+        headers: {
+          'xi-api-key': this.apiKey,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`ElevenLabs voices API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.voices;
     } catch (error) {
       console.error('ElevenLabs get voices error:', error);
       throw new Error('Failed to get voices from ElevenLabs');

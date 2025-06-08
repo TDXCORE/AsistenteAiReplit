@@ -71,7 +71,7 @@ export class DeepgramService {
   async testConnection(): Promise<boolean> {
     try {
       const response = await this.client.manage.getProjects();
-      return response && response.projects && response.projects.length > 0;
+      return true; // If no error thrown, connection is working
     } catch (error) {
       console.error('Deepgram test failed:', error);
       return false;

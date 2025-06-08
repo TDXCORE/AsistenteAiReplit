@@ -4,6 +4,10 @@ import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertConversationMessageSchema, insertPerformanceMetricSchema, insertApiUsageSchema } from "@shared/schema";
+import { deepgramService } from "./services/deepgram";
+import { groqService } from "./services/groq";
+import { elevenLabsService } from "./services/elevenlabs";
+import { integrationTestService } from "./services/integrationTest";
 
 interface ClientConnection {
   id: string;
@@ -12,13 +16,16 @@ interface ClientConnection {
   sessionId?: number;
   isRecording: boolean;
   startTime?: number;
+  deepgramConnection?: any;
+  currentTranscript?: string;
+  audioBuffer?: ArrayBuffer[];
 }
 
 const clients = new Map<string, ClientConnection>();
 
 // Message schemas for WebSocket communication
 const controlMessageSchema = z.object({
-  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update']),
+  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update', 'run_integration_test']),
   timestamp: z.number(),
   data: z.any().optional(),
 });
@@ -110,6 +117,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!client.isRecording) {
           client.isRecording = true;
           client.startTime = timestamp;
+          client.audioBuffer = [];
+          client.currentTranscript = '';
           
           // Create new session if needed
           if (!client.sessionId) {
@@ -119,10 +128,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
             client.sessionId = session.id;
           }
 
-          sendControlMessage(client, {
-            type: 'recording_started',
-            timestamp: Date.now(),
-          });
+          // Initialize Deepgram connection
+          try {
+            client.deepgramConnection = await deepgramService.createLiveTranscription(
+              client.id,
+              (transcriptData) => handleTranscriptUpdate(client, transcriptData),
+              (error) => console.error('Deepgram error for client', client.id, error)
+            );
+            
+            sendControlMessage(client, {
+              type: 'recording_started',
+              timestamp: Date.now(),
+            });
+          } catch (error) {
+            console.error('Failed to initialize Deepgram for client', client.id, error);
+            client.isRecording = false;
+            sendControlMessage(client, {
+              type: 'error',
+              timestamp: Date.now(),
+              error: 'Failed to initialize speech recognition',
+            });
+          }
         }
         break;
 
@@ -130,8 +156,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (client.isRecording) {
           client.isRecording = false;
           
-          // Simulate processing and response generation
-          await simulateVoiceProcessing(client);
+          // Close Deepgram connection
+          if (client.deepgramConnection) {
+            deepgramService.closeConnection(client.id);
+            client.deepgramConnection = null;
+          }
+          
+          // Process final transcript if available
+          if (client.currentTranscript && client.currentTranscript.trim()) {
+            await processCompleteVoicePipeline(client, client.currentTranscript);
+          }
         }
         break;
 
@@ -154,19 +188,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Handle settings updates
         console.log('Settings updated:', data);
         break;
+
+      case 'run_integration_test':
+        try {
+          const testResults = await integrationTestService.runFullIntegrationTest();
+          sendControlMessage(client, {
+            type: 'integration_test_results',
+            timestamp: Date.now(),
+            results: testResults,
+          });
+        } catch (error) {
+          sendControlMessage(client, {
+            type: 'integration_test_error',
+            timestamp: Date.now(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+        break;
     }
   }
 
-  // Process audio chunks (simplified for this implementation)
-  async function processAudioChunk(client: ClientConnection, audioData: ArrayBuffer) {
-    // In a real implementation, this would:
-    // 1. Stream audio to STT service (Deepgram)
-    // 2. Accumulate transcript
-    // 3. Detect voice activity
-    // 4. Send real-time transcript updates
+  // Handle transcript updates from Deepgram
+  function handleTranscriptUpdate(client: ClientConnection, transcriptData: any) {
+    const { transcript, is_final, confidence } = transcriptData;
+    
+    if (is_final) {
+      client.currentTranscript = transcript;
+      
+      sendControlMessage(client, {
+        type: 'transcript_update',
+        timestamp: Date.now(),
+        transcript,
+        isFinal: true,
+        confidence,
+        language: 'en-US',
+      });
+    } else {
+      sendControlMessage(client, {
+        type: 'transcript_update',
+        timestamp: Date.now(),
+        transcript,
+        isFinal: false,
+        confidence,
+        language: 'en-US',
+      });
+    }
+  }
 
-    // For now, simulate audio level detection
-    const audioLevel = Math.random() * 100;
+  // Process audio chunks - stream to Deepgram
+  async function processAudioChunk(client: ClientConnection, audioData: ArrayBuffer) {
+    if (client.isRecording && client.deepgramConnection) {
+      // Send audio data to Deepgram for real-time transcription
+      deepgramService.sendAudioData(client.id, audioData);
+    }
+
+    // Calculate audio level for visualization
+    const audioArray = new Int16Array(audioData);
+    let sum = 0;
+    for (let i = 0; i < audioArray.length; i++) {
+      sum += Math.abs(audioArray[i]);
+    }
+    const audioLevel = (sum / audioArray.length / 32768) * 100;
     
     sendControlMessage(client, {
       type: 'audio_level',
@@ -175,34 +257,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
-  // Simulate the complete voice processing pipeline
-  async function simulateVoiceProcessing(client: ClientConnection) {
+  // Complete voice processing pipeline: STT → LLM → TTS
+  async function processCompleteVoicePipeline(client: ClientConnection, transcript: string) {
     const startTime = Date.now();
-    
-    // Simulate STT processing
-    setTimeout(() => {
-      sendControlMessage(client, {
-        type: 'transcript_update',
-        timestamp: Date.now(),
-        transcript: "How's the weather looking for tomorrow?",
-        isFinal: true,
-        confidence: 0.98,
-        language: 'en-US',
-      });
-    }, 150);
+    const sttLatency = Date.now() - (client.startTime || Date.now());
 
-    // Simulate LLM processing and response
-    setTimeout(async () => {
-      const responseLatency = Date.now() - startTime;
-      
-      // Save conversation message
+    try {
+      // Step 1: Generate LLM response
+      const llmStartTime = Date.now();
+      const response = await groqService.generateResponse(transcript);
+      const llmLatency = Date.now() - llmStartTime;
+
+      // Step 2: Generate TTS audio
+      const ttsStartTime = Date.now();
+      const audioBuffer = await elevenLabsService.generateSpeech(response);
+      const ttsLatency = Date.now() - ttsStartTime;
+
+      const totalLatency = Date.now() - startTime;
+
+      // Save conversation messages
       if (client.sessionId) {
         await storage.createConversationMessage({
           sessionId: client.sessionId,
           messageType: 'user',
-          content: "How's the weather looking for tomorrow?",
-          latency: responseLatency,
-          confidence: 0.98,
+          content: transcript,
+          latency: sttLatency,
+          confidence: 0.95,
           language: 'en-US',
           cost: 0.002,
         });
@@ -210,25 +290,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.createConversationMessage({
           sessionId: client.sessionId,
           messageType: 'assistant',
-          content: "Tomorrow in your area looks quite pleasant! You can expect partly cloudy skies with a high of 72°F and a low of 55°F. There's only a 10% chance of rain, so it should be a great day for any outdoor activities you have planned.",
-          latency: responseLatency,
+          content: response,
+          latency: totalLatency,
           cost: 0.008,
         });
 
         // Save performance metrics
         await storage.createPerformanceMetric({
           sessionId: client.sessionId,
-          audioCaptureLatency: 28,
-          networkUpLatency: 45,
-          sttLatency: 89,
-          llmLatency: 124,
-          ttsLatency: 380,
-          networkDownLatency: 32,
-          totalLatency: responseLatency,
+          audioCaptureLatency: 25,
+          networkUpLatency: 35,
+          sttLatency,
+          llmLatency,
+          ttsLatency,
+          networkDownLatency: 30,
+          totalLatency,
           audioLevel: 65,
         });
 
-        // Save API usage
+        // Save API usage costs
         await storage.createApiUsage({
           sessionId: client.sessionId,
           service: 'deepgram',
@@ -248,26 +328,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Send response to client
       sendControlMessage(client, {
         type: 'response_ready',
         timestamp: Date.now(),
         response: {
-          text: "Tomorrow in your area looks quite pleasant! You can expect partly cloudy skies with a high of 72°F and a low of 55°F. There's only a 10% chance of rain, so it should be a great day for any outdoor activities you have planned.",
-          latency: responseLatency,
+          text: response,
+          latency: totalLatency,
         },
       });
 
-      // Simulate TTS audio response
-      setTimeout(() => {
-        if (client.audioWs && client.audioWs.readyState === WebSocket.OPEN) {
-          // In real implementation, this would be actual audio data
-          const mockAudioData = new ArrayBuffer(1024);
-          client.audioWs.send(mockAudioData);
-        }
-      }, 100);
+      // Send audio data via audio WebSocket
+      if (client.audioWs && client.audioWs.readyState === WebSocket.OPEN) {
+        client.audioWs.send(audioBuffer);
+      }
 
-    }, 250);
+    } catch (error) {
+      console.error('Voice processing pipeline error:', error);
+      sendControlMessage(client, {
+        type: 'error',
+        timestamp: Date.now(),
+        error: 'Failed to process voice request',
+      });
+    }
   }
+
+
 
   // Send control message to client
   function sendControlMessage(client: ClientConnection, message: any) {
