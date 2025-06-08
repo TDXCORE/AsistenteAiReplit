@@ -6,7 +6,7 @@ export class VoiceWebSocketManager {
   private clientId: string;
   private connectionStatus: ConnectionStatus = 'disconnected';
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 10;
   private onMessage?: (message: WebSocketMessage) => void;
   private onConnectionStatusChange?: (status: ConnectionStatus) => void;
 

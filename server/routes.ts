@@ -136,7 +136,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 handleTranscriptUpdate(client, transcriptData);
                 
                 // If transcript is final and has content, process the complete voice pipeline
-                if (transcriptData.is_final && transcriptData.transcript && transcriptData.transcript.trim().length > 3) {
+                if (transcriptData.is_final && transcriptData.transcript && transcriptData.transcript.trim().length > 2) {
+                  console.log(`Triggering voice pipeline for final transcript: "${transcriptData.transcript.trim()}"`);
                   await processCompleteVoicePipeline(client, transcriptData.transcript.trim());
                 }
               },

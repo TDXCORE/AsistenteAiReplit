@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { eq, desc, gte } from "drizzle-orm";
 import { 
   voiceSessions, 
@@ -185,7 +185,18 @@ class DatabaseStorage implements IStorage {
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL environment variable is required');
     }
-    const sql = neon(process.env.DATABASE_URL);
+    
+    // Convert Supabase URL to PostgreSQL connection string
+    let dbUrl = process.env.DATABASE_URL;
+    if (dbUrl.startsWith('https://')) {
+      // Extract components from Supabase URL
+      const url = new URL(dbUrl);
+      const host = url.hostname;
+      const password = url.searchParams.get('password') || '';
+      dbUrl = `postgresql://postgres:${password}@${host}:5432/postgres`;
+    }
+    
+    const sql = postgres(dbUrl, { ssl: 'require' });
     this.db = drizzle(sql);
   }
 
@@ -200,7 +211,7 @@ class DatabaseStorage implements IStorage {
     const sessions = await this.db.select()
       .from(voiceSessions)
       .where(eq(voiceSessions.clientId, clientId))
-      .orderBy(desc(voiceSessions.timestamp))
+      .orderBy(desc(voiceSessions.startTime))
       .limit(1);
     return sessions[0];
   }
@@ -224,7 +235,7 @@ class DatabaseStorage implements IStorage {
     return await this.db.select()
       .from(conversationMessages)
       .where(eq(conversationMessages.sessionId, sessionId))
-      .orderBy(conversationMessages.timestamp);
+      .orderBy(desc(conversationMessages.timestamp));
   }
 
   async createPerformanceMetric(insertMetric: InsertPerformanceMetric): Promise<PerformanceMetric> {
@@ -270,14 +281,5 @@ class DatabaseStorage implements IStorage {
   }
 }
 
-// Try to use database storage, fall back to memory storage if DB not available
-let storage: IStorage;
-try {
-  storage = new DatabaseStorage();
-  console.log('Using Supabase database storage');
-} catch (error) {
-  console.warn('Database connection failed, using in-memory storage:', error);
-  storage = new MemStorage();
-}
-
-export { storage };
+// Use in-memory storage for now due to database connection issues
+export const storage = new MemStorage();
