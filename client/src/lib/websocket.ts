@@ -9,26 +9,35 @@ export class VoiceWebSocketManager {
   private maxReconnectAttempts = 10;
   private onMessage?: (message: WebSocketMessage) => void;
   private onConnectionStatusChange?: (status: ConnectionStatus) => void;
+  private isPublicDomain = false;
+  private pollInterval?: NodeJS.Timeout;
 
   constructor(clientId: string) {
     this.clientId = clientId;
+    // Detect if we're on a public Replit domain
+    this.isPublicDomain = window.location.host.includes('.replit.dev') || 
+                         window.location.host.includes('.replit.app');
   }
 
   async connect() {
     if (this.connectionStatus === 'connecting') {
-      return; // Prevent multiple simultaneous connection attempts
+      return;
     }
     
     this.setConnectionStatus('connecting');
     
+    if (this.isPublicDomain) {
+      // Use HTTP polling for public domains
+      console.log('Using HTTP polling for public domain');
+      this.startHttpPolling();
+      this.setConnectionStatus('connected');
+      return;
+    }
+    
     try {
-      // Close any existing connections first
       this.disconnect();
-      
-      // Wait a moment before reconnecting
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Connect sequentially to avoid race conditions
       await this.connectControlWebSocket();
       await this.connectAudioWebSocket();
       
@@ -210,7 +219,60 @@ export class VoiceWebSocketManager {
     this.onConnectionStatusChange = handler;
   }
 
+  private startHttpPolling() {
+    // Initialize client on server
+    fetch(`/api/messages/${this.clientId}`, { 
+      method: 'POST', 
+      body: JSON.stringify({ type: 'init' }), 
+      headers: { 'Content-Type': 'application/json' } 
+    });
+    
+    // Start polling for messages
+    this.pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/messages/${this.clientId}`);
+        if (response.ok) {
+          const messages = await response.json();
+          messages.forEach((message: any) => {
+            this.onMessage?.(message);
+          });
+        }
+      } catch (error) {
+        console.error('HTTP polling error:', error);
+      }
+    }, 500);
+  }
+
+  sendControlMessage(message: WebSocketMessage) {
+    if (this.isPublicDomain) {
+      fetch(`/api/messages/${this.clientId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message)
+      });
+    } else if (this.controlWs && this.controlWs.readyState === WebSocket.OPEN) {
+      this.controlWs.send(JSON.stringify(message));
+    }
+  }
+
+  sendAudioData(audioData: Float32Array) {
+    if (this.isPublicDomain) {
+      const buffer = audioData.buffer.slice(audioData.byteOffset, audioData.byteOffset + audioData.byteLength);
+      fetch(`/api/audio/${this.clientId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: buffer
+      });
+    } else if (this.audioWs && this.audioWs.readyState === WebSocket.OPEN) {
+      this.audioWs.send(audioData.buffer);
+    }
+  }
+
   disconnect() {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = undefined;
+    }
     if (this.controlWs) {
       if (this.controlWs.readyState === WebSocket.OPEN || this.controlWs.readyState === WebSocket.CONNECTING) {
         this.controlWs.close(1000, 'Client disconnect');
