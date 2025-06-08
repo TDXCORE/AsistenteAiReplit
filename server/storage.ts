@@ -1,3 +1,6 @@
+import { drizzle } from "drizzle-orm/neon-http";
+import { neon } from "@neondatabase/serverless";
+import { eq, desc, gte } from "drizzle-orm";
 import { 
   voiceSessions, 
   conversationMessages, 
@@ -174,4 +177,107 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// Database storage implementation
+class DatabaseStorage implements IStorage {
+  private db;
+
+  constructor() {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL environment variable is required');
+    }
+    const sql = neon(process.env.DATABASE_URL);
+    this.db = drizzle(sql);
+  }
+
+  async createVoiceSession(insertSession: InsertVoiceSession): Promise<VoiceSession> {
+    const [session] = await this.db.insert(voiceSessions)
+      .values(insertSession)
+      .returning();
+    return session;
+  }
+
+  async getCurrentSession(clientId: string): Promise<VoiceSession | undefined> {
+    const sessions = await this.db.select()
+      .from(voiceSessions)
+      .where(eq(voiceSessions.clientId, clientId))
+      .orderBy(desc(voiceSessions.timestamp))
+      .limit(1);
+    return sessions[0];
+  }
+
+  async updateSession(id: number, updates: Partial<VoiceSession>): Promise<VoiceSession> {
+    const [session] = await this.db.update(voiceSessions)
+      .set(updates)
+      .where(eq(voiceSessions.id, id))
+      .returning();
+    return session;
+  }
+
+  async createConversationMessage(insertMessage: InsertConversationMessage): Promise<ConversationMessage> {
+    const [message] = await this.db.insert(conversationMessages)
+      .values(insertMessage)
+      .returning();
+    return message;
+  }
+
+  async getSessionMessages(sessionId: number): Promise<ConversationMessage[]> {
+    return await this.db.select()
+      .from(conversationMessages)
+      .where(eq(conversationMessages.sessionId, sessionId))
+      .orderBy(conversationMessages.timestamp);
+  }
+
+  async createPerformanceMetric(insertMetric: InsertPerformanceMetric): Promise<PerformanceMetric> {
+    const [metric] = await this.db.insert(performanceMetrics)
+      .values(insertMetric)
+      .returning();
+    return metric;
+  }
+
+  async getSessionMetrics(sessionId: number): Promise<PerformanceMetric[]> {
+    return await this.db.select()
+      .from(performanceMetrics)
+      .where(eq(performanceMetrics.sessionId, sessionId))
+      .orderBy(performanceMetrics.timestamp);
+  }
+
+  async createApiUsage(insertUsage: InsertApiUsage): Promise<ApiUsage> {
+    const [usage] = await this.db.insert(apiUsage)
+      .values(insertUsage)
+      .returning();
+    return usage;
+  }
+
+  async getMonthlyUsage(): Promise<any> {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    const usage = await this.db.select()
+      .from(apiUsage)
+      .where(gte(apiUsage.timestamp, startOfMonth));
+
+    const totalCost = usage.reduce((sum, u) => sum + u.cost, 0);
+    const serviceBreakdown = usage.reduce((acc, u) => {
+      acc[u.service] = (acc[u.service] || 0) + u.cost;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      totalCost,
+      serviceBreakdown,
+      usage
+    };
+  }
+}
+
+// Try to use database storage, fall back to memory storage if DB not available
+let storage: IStorage;
+try {
+  storage = new DatabaseStorage();
+  console.log('Using Supabase database storage');
+} catch (error) {
+  console.warn('Database connection failed, using in-memory storage:', error);
+  storage = new MemStorage();
+}
+
+export { storage };

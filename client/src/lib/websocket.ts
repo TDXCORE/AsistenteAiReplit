@@ -18,10 +18,9 @@ export class VoiceWebSocketManager {
     this.setConnectionStatus('connecting');
     
     try {
-      await Promise.all([
-        this.connectControlWebSocket(),
-        this.connectAudioWebSocket()
-      ]);
+      // Connect sequentially to avoid race conditions
+      await this.connectControlWebSocket();
+      await this.connectAudioWebSocket();
       
       this.setConnectionStatus('connected');
       this.reconnectAttempts = 0;
@@ -150,11 +149,12 @@ export class VoiceWebSocketManager {
   private scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
+      this.setConnectionStatus('error');
       return;
     }
 
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
     this.reconnectAttempts++;
+    const delay = Math.min(500 * this.reconnectAttempts, 2000);
     
     setTimeout(() => {
       console.log(`Reconnection attempt ${this.reconnectAttempts}`);
