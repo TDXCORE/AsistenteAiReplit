@@ -291,16 +291,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Process audio chunks - stream to Deepgram
   async function processAudioChunk(client: ClientConnection, audioData: ArrayBuffer) {
+    if (!client.isRecording) {
+      console.log(`Ignoring audio chunk for client ${client.id} - not recording`);
+      return;
+    }
+
     console.log(`Processing audio chunk for client ${client.id}: ${audioData.byteLength} bytes`);
     
-    if (client.isRecording && client.deepgramConnection) {
+    if (client.deepgramConnection) {
       // Send audio data to Deepgram for real-time transcription
       try {
         deepgramService.sendAudioData(client.id, audioData);
-        console.log(`Sent audio data to Deepgram for client ${client.id}`);
+        console.log(`Successfully sent ${audioData.byteLength} bytes to Deepgram for client ${client.id}`);
       } catch (error) {
         console.error(`Failed to send audio to Deepgram for client ${client.id}:`, error);
       }
+    } else {
+      console.warn(`No Deepgram connection for client ${client.id}`);
     }
 
     // Calculate audio level for visualization

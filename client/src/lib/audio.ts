@@ -16,6 +16,11 @@ export class AudioProcessor {
         latencyHint: 'interactive',
       });
 
+      // Resume audio context if suspended (requires user interaction)
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+
       // Load audio worklet processor
       await this.audioContext.audioWorklet.addModule('/audio-processor.js');
 
@@ -55,10 +60,14 @@ export class AudioProcessor {
       // Handle audio data from worklet
       this.audioWorkletNode.port.onmessage = (event) => {
         if (event.data.type === 'audioData' && this.isRecording) {
-          // Convert Int16Array to ArrayBuffer for WebSocket transmission
-          const int16Array = event.data.audioData;
-          const audioBuffer = int16Array.buffer.slice(int16Array.byteOffset, int16Array.byteOffset + int16Array.byteLength);
-          this.onAudioData?.(new Float32Array(int16Array.buffer, int16Array.byteOffset, int16Array.length));
+          // PCM16 data is ready for transmission
+          const pcm16Array = event.data.audioData; // Int16Array
+          // Convert to Float32Array for onAudioData callback
+          const float32Array = new Float32Array(pcm16Array.length);
+          for (let i = 0; i < pcm16Array.length; i++) {
+            float32Array[i] = pcm16Array[i] / 32768.0; // Convert back to float for processing
+          }
+          this.onAudioData?.(float32Array);
         }
       };
 
