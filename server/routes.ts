@@ -40,10 +40,27 @@ const controlMessageSchema = z.object({
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
+  // Add CORS headers for WebSocket connections
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(200);
+    } else {
+      next();
+    }
+  });
+
   // WebSocket server for real-time communication
   const wss = new WebSocketServer({ 
     server: httpServer, 
-    path: '/ws'
+    path: '/ws',
+    verifyClient: (info: any) => {
+      // Allow all origins for Replit compatibility
+      return true;
+    }
   });
 
   wss.on('connection', (ws, req) => {
@@ -509,6 +526,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       client.controlWs.send(JSON.stringify(message));
     }
   }
+
+  // Fallback HTTP endpoints for when WebSockets don't work in public domains
+  const messageQueues = new Map<string, any[]>();
+  
+  app.post('/api/messages/:clientId', async (req, res) => {
+    const { clientId } = req.params;
+    const message = req.body;
+    
+    try {
+      const client = clients.get(clientId);
+      if (client) {
+        await handleControlMessage(client, message);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to process message' });
+    }
+  });
+
+  app.get('/api/messages/:clientId', async (req, res) => {
+    const { clientId } = req.params;
+    const after = parseInt(req.query.after as string) || 0;
+    
+    const queue = messageQueues.get(clientId) || [];
+    const newMessages = queue.filter(msg => msg.id > after);
+    res.json(newMessages);
+  });
+
+  app.post('/api/audio/:clientId', async (req, res) => {
+    const { clientId } = req.params;
+    const audioData = req.body;
+    
+    try {
+      const client = clients.get(clientId);
+      if (client && audioData instanceof ArrayBuffer) {
+        await processAudioChunk(client, audioData);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to process audio' });
+    }
+  });
 
   // API Routes for session data
   app.get('/api/sessions/:clientId/current', async (req, res) => {
