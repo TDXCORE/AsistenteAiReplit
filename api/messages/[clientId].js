@@ -1,6 +1,5 @@
-// Import services - will be bundled for serverless
-import { Groq } from 'groq-sdk';
-import { ElevenLabs } from 'elevenlabs';
+const { Groq } = require('groq-sdk');
+const { ElevenLabs } = require('elevenlabs');
 
 // Initialize services directly in serverless function
 const groq = new Groq({
@@ -62,6 +61,8 @@ module.exports = async function handler(req, res) {
 };
 
 async function handleControlMessage(client, message) {
+  console.log(`Handling message type: ${message.type} for client ${client.id}`);
+  
   switch (message.type) {
     case 'start_recording':
       client.isRecording = true;
@@ -80,10 +81,17 @@ async function handleControlMessage(client, message) {
       break;
       
     case 'voice_input':
+      console.log(`Voice input received: "${message.text}", isProcessing: ${client.isProcessing}`);
       if (message.text && !client.isProcessing) {
+        console.log('Starting voice pipeline processing...');
         await processCompleteVoicePipeline(client, message.text);
+      } else {
+        console.log('Skipping voice processing - already processing or no text');
       }
       break;
+      
+    default:
+      console.log(`Unknown message type: ${message.type}`);
   }
 }
 
@@ -107,6 +115,8 @@ async function processCompleteVoicePipeline(client, transcript) {
   const startTime = Date.now();
   
   try {
+    console.log(`Processing voice input: "${transcript}" for client ${client.id}`);
+    
     // Generate AI response using Groq
     const completion = await groq.chat.completions.create({
       messages: [
@@ -125,13 +135,22 @@ async function processCompleteVoicePipeline(client, transcript) {
     });
     
     const response = completion.choices[0]?.message?.content || "Lo siento, no pude procesar tu solicitud.";
+    console.log(`Generated AI response: "${response}"`);
     
     // Generate TTS audio using ElevenLabs
-    const audioBuffer = await elevenlabs.generate({
+    const audioResponse = await elevenlabs.generate({
       voice: "pNInz6obpgDQGcFmaJgB",
       text: response,
       model_id: "eleven_multilingual_v2"
     });
+    
+    // Convert audio stream to buffer
+    const audioChunks = [];
+    for await (const chunk of audioResponse) {
+      audioChunks.push(chunk);
+    }
+    const audioBuffer = Buffer.concat(audioChunks);
+    console.log(`Generated TTS audio: ${audioBuffer.length} bytes`);
     
     const totalLatency = Date.now() - startTime;
     
@@ -157,11 +176,14 @@ async function processCompleteVoicePipeline(client, transcript) {
       audioLength: audioBuffer.byteLength,
     });
     
+    console.log(`Completed voice pipeline for client ${client.id} in ${totalLatency}ms`);
+    
   } catch (error) {
+    console.error(`Voice pipeline error for client ${client.id}:`, error);
     sendControlMessage(client, {
       type: 'error',
       timestamp: Date.now(),
-      error: 'Failed to process voice request',
+      error: `Failed to process voice request: ${error.message}`,
     });
   } finally {
     client.isProcessing = false;

@@ -2,11 +2,6 @@
   "version": 2,
   "buildCommand": "vite build",
   "outputDirectory": "dist/public",
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "@vercel/node"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
