@@ -479,7 +479,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
 
-      // Send audio data via audio WebSocket
+      // Send audio data via WebSocket or queue for HTTP
       if (client.audioWs && client.audioWs.readyState === WebSocket.OPEN) {
         console.log(`Sending ${audioBuffer.byteLength} bytes of TTS audio to client ${client.id}`);
         
@@ -498,12 +498,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Auto-stop playing after estimated audio duration (rough estimate based on bytes)
         const estimatedDuration = Math.max(2000, (audioBuffer.byteLength / 32000) * 1000);
+      } else {
+        // Store audio in HTTP queue for polling clients
+        if (!audioQueues.has(client.id)) {
+          audioQueues.set(client.id, []);
+        }
+        audioQueues.get(client.id)!.push(audioBuffer);
+        
+        console.log(`Queued ${audioBuffer.byteLength} bytes of TTS audio for HTTP client ${client.id}`);
+        
+        // Mark client as playing and set response time for echo suppression
+        client.isPlaying = true;
+        client.lastResponseTime = Date.now();
+        
+        // Notify client that audio is ready
+        sendControlMessage(client, {
+          type: 'audio_ready',
+          timestamp: Date.now(),
+          audioLength: audioBuffer.byteLength,
+        });
+        
+        // Auto-stop playing after estimated audio duration
+        const estimatedDuration = Math.max(2000, (audioBuffer.byteLength / 32000) * 1000);
         setTimeout(() => {
           client.isPlaying = false;
         }, estimatedDuration);
-        
-      } else {
-        console.warn(`Audio WebSocket not ready for client ${client.id}, state: ${client.audioWs?.readyState}`);
+      }
+      
+      // Auto-stop playing for WebSocket clients too
+      if (client.audioWs && client.audioWs.readyState === WebSocket.OPEN) {
+        const estimatedDuration = Math.max(2000, (audioBuffer.byteLength / 32000) * 1000);
+        setTimeout(() => {
+          client.isPlaying = false;
+        }, estimatedDuration);
       }
 
     } catch (error) {
@@ -538,11 +565,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (queue.length > 50) {
         queue.splice(0, queue.length - 50);
       }
+      
+      console.log(`Queued message for HTTP client ${client.id}:`, message.type);
     }
   }
 
   // Fallback HTTP endpoints for when WebSockets don't work in public domains
   const messageQueues = new Map<string, any[]>();
+  const audioQueues = new Map<string, ArrayBuffer[]>();
   let messageIdCounter = 1;
   
   app.post('/api/messages/:clientId', async (req, res) => {
@@ -586,7 +616,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       let client = clients.get(clientId);
       if (!client) {
-        // Create a new HTTP-only client for audio
         client = {
           id: clientId,
           isRecording: false,
@@ -605,6 +634,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Audio processing error:', error);
       res.status(500).json({ error: 'Failed to process audio' });
+    }
+  });
+
+  app.get('/api/audio/:clientId', async (req, res) => {
+    const { clientId } = req.params;
+    
+    try {
+      const audioQueue = audioQueues.get(clientId) || [];
+      if (audioQueue.length > 0) {
+        const audioData = audioQueue.shift()!;
+        res.set('Content-Type', 'audio/mpeg');
+        res.send(Buffer.from(audioData));
+      } else {
+        res.status(204).send(); // No content
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get audio' });
     }
   });
 

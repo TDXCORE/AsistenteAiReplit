@@ -133,9 +133,10 @@ export class VoiceWebSocketManager {
       headers: { 'Content-Type': 'application/json' } 
     });
     
-    // Start polling for messages
+    // Start polling for messages and audio
     this.pollInterval = setInterval(async () => {
       try {
+        // Poll for control messages
         const response = await fetch(`/api/messages/${this.clientId}?after=${this.lastMessageId}`);
         if (response.ok) {
           const messages = await response.json();
@@ -145,6 +146,15 @@ export class VoiceWebSocketManager {
               this.onMessage?.(message);
             }
           });
+        }
+
+        // Poll for audio data
+        const audioResponse = await fetch(`/api/audio/${this.clientId}`);
+        if (audioResponse.ok && audioResponse.status !== 204) {
+          const audioData = await audioResponse.arrayBuffer();
+          if (audioData.byteLength > 0) {
+            this.playAudioResponse(audioData);
+          }
         }
       } catch (error) {
         console.error('HTTP polling error:', error);
