@@ -107,14 +107,31 @@ async function processCompleteVoicePipeline(client, transcript) {
   const startTime = Date.now();
   
   try {
-    // Generate AI response
-    const response = await groqService.generateResponse(
-      `Responde en español de manera natural y conversacional: ${transcript}`,
-      { maxTokens: 150, temperature: 0.7 }
-    );
+    // Generate AI response using Groq
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: "Eres un asistente de voz útil y amigable. Responde en español de manera natural y conversacional."
+        },
+        {
+          role: "user",
+          content: transcript
+        }
+      ],
+      model: "mixtral-8x7b-32768",
+      max_tokens: 150,
+      temperature: 0.7
+    });
     
-    // Generate TTS audio
-    const audioBuffer = await elevenLabsService.generateSpeech(response);
+    const response = completion.choices[0]?.message?.content || "Lo siento, no pude procesar tu solicitud.";
+    
+    // Generate TTS audio using ElevenLabs
+    const audioBuffer = await elevenlabs.generate({
+      voice: "pNInz6obpgDQGcFmaJgB",
+      text: response,
+      model_id: "eleven_multilingual_v2"
+    });
     
     const totalLatency = Date.now() - startTime;
     
