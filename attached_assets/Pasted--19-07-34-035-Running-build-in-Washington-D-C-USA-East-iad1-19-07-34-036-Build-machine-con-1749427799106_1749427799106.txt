@@ -1,0 +1,45 @@
+[19:07:34.035] Running build in Washington, D.C., USA (East) – iad1
+[19:07:34.036] Build machine configuration: 2 cores, 8 GB
+[19:07:34.054] Cloning github.com/TDXCORE/AsistenteAiReplit (Branch: main, Commit: 1a580b3)
+[19:07:34.229] Previous build caches not available
+[19:07:34.429] Cloning completed: 375.000ms
+[19:07:35.321] Running "vercel build"
+[19:07:35.755] Vercel CLI 42.2.0
+[19:07:36.312] Installing dependencies...
+[19:07:40.951] npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+[19:07:41.578] npm warn deprecated @esbuild-kit/core-utils@3.3.2: Merged into tsx: https://tsx.is
+[19:07:41.580] npm warn deprecated @esbuild-kit/esm-loader@2.6.5: Merged into tsx: https://tsx.is
+[19:07:47.290] npm warn deprecated elevenlabs@1.59.0: This package has moved to @elevenlabs/elevenlabs-js
+[19:07:48.152] 
+[19:07:48.153] added 539 packages in 12s
+[19:07:48.153] 
+[19:07:48.154] 75 packages are looking for funding
+[19:07:48.154]   run `npm fund` for details
+[19:07:48.222] Running "npm run build"
+[19:07:48.368] 
+[19:07:48.369] > rest-express@1.0.0 build
+[19:07:48.369] > vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+[19:07:48.370] 
+[19:07:48.626] [36mvite v5.4.14 [32mbuilding for production...[36m[39m
+[19:07:48.676] transforming...
+[19:07:48.965] Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+[19:07:48.967]   npx update-browserslist-db@latest
+[19:07:48.968]   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+[19:07:52.661] [32m✓[39m 1724 modules transformed.
+[19:07:52.953] rendering chunks...
+[19:07:52.962] computing gzip size...
+[19:07:52.977] [2m../dist/public/[22m[32mindex.html                 [39m[1m[2m  0.63 kB[22m[1m[22m[2m │ gzip:   0.38 kB[22m
+[19:07:52.978] [2m../dist/public/[22m[2massets/[22m[35mindex-DQa1fhgn.css  [39m[1m[2m 62.37 kB[22m[1m[22m[2m │ gzip:  11.06 kB[22m
+[19:07:52.978] [2m../dist/public/[22m[2massets/[22m[36mindex-BCVO4HfF.js   [39m[1m[2m359.76 kB[22m[1m[22m[2m │ gzip: 112.95 kB[22m
+[19:07:52.978] [32m✓ built in 4.33s[39m
+[19:07:53.013] 
+[19:07:53.013]   dist/index.js  42.8kb
+[19:07:53.013] 
+[19:07:53.013] ⚡ Done in 8ms
+[19:07:53.082] Build Completed in /vercel/output [17s]
+[19:07:53.103] Deploying outputs...
+[19:07:54.174] 
+[19:07:54.307] Deployment completed
+[19:08:10.653] Uploading build cache [89.37 MB]...
+[19:08:12.257] Build cache uploaded: 1.614s
+[19:08:14.520] Exiting build container

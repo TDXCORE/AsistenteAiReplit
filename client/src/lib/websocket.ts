@@ -15,9 +15,10 @@ export class VoiceWebSocketManager {
 
   constructor(clientId: string) {
     this.clientId = clientId;
-    // Detect if we're on a public Replit domain
+    // Detect if we're on a public domain (Replit or Vercel)
     this.isPublicDomain = window.location.host.includes('.replit.dev') || 
-                         window.location.host.includes('.replit.app');
+                         window.location.host.includes('.replit.app') ||
+                         window.location.host.includes('.vercel.app');
   }
 
   async connect() {
