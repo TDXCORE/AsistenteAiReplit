@@ -121,6 +121,11 @@ export function useVoiceAssistant() {
         console.log('Server connection confirmed');
         break;
 
+      case 'init_response':
+        console.log('Client initialization confirmed');
+        setConnectionStatus('connected');
+        break;
+
       case 'recording_started':
         setAssistantStatus('listening');
         break;
