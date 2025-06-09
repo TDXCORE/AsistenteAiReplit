@@ -1,5 +1,5 @@
 const { Groq } = require('groq-sdk');
-const { ElevenLabs } = require('elevenlabs');
+const ElevenLabs = require('elevenlabs');
 
 // Initialize services directly in serverless function
 const groq = new Groq({
@@ -132,7 +132,7 @@ async function processCompleteVoicePipeline(client, transcript) {
           content: transcript
         }
       ],
-      model: "mixtral-8x7b-32768",
+      model: "llama3-8b-8192",
       max_tokens: 150,
       temperature: 0.7
     });

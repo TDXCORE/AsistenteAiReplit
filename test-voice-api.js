@@ -23,7 +23,7 @@ async function testVoiceAPI() {
           content: "Hola"
         }
       ],
-      model: "mixtral-8x7b-32768",
+      model: "llama3-8b-8192",
       max_tokens: 50,
       temperature: 0.7
     });
