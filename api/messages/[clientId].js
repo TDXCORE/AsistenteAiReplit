@@ -1,20 +1,39 @@
+// Import required modules for serverless environment
 const { Groq } = require('groq-sdk');
-const ElevenLabs = require('elevenlabs');
+const fs = require('fs');
+const path = require('path');
 
-// Initialize services directly in serverless function
+// Initialize Groq client
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
-const elevenlabs = new ElevenLabs({
-  apiKey: process.env.ELEVENLABS_API_KEY
-});
-
-// Global storage for serverless functions
-const messageQueues = new Map();
-const audioQueues = new Map();
-const clients = new Map();
+// File-based storage for serverless compatibility
+const tempDir = '/tmp';
 let messageIdCounter = 1;
+
+function getAudioFilePath(clientId) {
+  return path.join(tempDir, `audio_${clientId}.json`);
+}
+
+function addAudioToQueue(clientId, audioBuffer) {
+  try {
+    const filePath = getAudioFilePath(clientId);
+    let queue = [];
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf8');
+      queue = JSON.parse(data);
+    }
+    queue.push(Array.from(audioBuffer)); // Convert ArrayBuffer to array for JSON storage
+    fs.writeFileSync(filePath, JSON.stringify(queue));
+  } catch (error) {
+    console.error('Error writing audio queue:', error);
+  }
+}
+
+// Simple in-memory storage for this serverless function
+let messageQueues = new Map();
+let clients = new Map();
 
 module.exports = async function handler(req, res) {
   const { clientId } = req.query;
@@ -194,11 +213,8 @@ async function processCompleteVoicePipeline(client, transcript) {
       },
     });
     
-    // Queue audio for HTTP delivery
-    if (!audioQueues.has(client.id)) {
-      audioQueues.set(client.id, []);
-    }
-    audioQueues.get(client.id).push(audioBuffer);
+    // Queue audio for HTTP delivery using file storage
+    addAudioToQueue(client.id, audioBuffer);
     
     sendControlMessage(client, {
       type: 'audio_ready',
