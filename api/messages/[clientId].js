@@ -28,6 +28,14 @@ module.exports = async function handler(req, res) {
     return res.status(200).end();
   }
   
+  // Debug environment variables
+  console.log('Environment check:', {
+    hasGroqKey: !!process.env.GROQ_API_KEY,
+    hasElevenLabsKey: !!process.env.ELEVENLABS_API_KEY,
+    groqKeyPrefix: process.env.GROQ_API_KEY?.substring(0, 8) + '...',
+    elevenLabsKeyPrefix: process.env.ELEVENLABS_API_KEY?.substring(0, 8) + '...'
+  });
+  
   if (req.method === 'POST') {
     const message = req.body;
     console.log(`Received POST message for client ${clientId}:`, message);
@@ -140,20 +148,30 @@ async function processCompleteVoicePipeline(client, transcript) {
     const response = completion.choices[0]?.message?.content || "Lo siento, no pude procesar tu solicitud.";
     console.log(`Generated AI response: "${response}"`);
     
-    // Generate TTS audio using ElevenLabs
-    const audioResponse = await elevenlabs.generate({
-      voice: "pNInz6obpgDQGcFmaJgB",
-      text: response,
-      model_id: "eleven_multilingual_v2"
+    // Generate TTS audio using ElevenLabs direct API
+    const ttsResponse = await fetch('https://api.elevenlabs.io/v1/text-to-speech/pNInz6obpgDQGcFmaJgB', {
+      method: 'POST',
+      headers: {
+        'Accept': 'audio/mpeg',
+        'Content-Type': 'application/json',
+        'xi-api-key': process.env.ELEVENLABS_API_KEY
+      },
+      body: JSON.stringify({
+        text: response,
+        model_id: "eleven_multilingual_v2",
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.5
+        }
+      })
     });
     
-    // Convert audio stream to buffer
-    const audioChunks = [];
-    for await (const chunk of audioResponse) {
-      audioChunks.push(chunk);
+    if (!ttsResponse.ok) {
+      throw new Error(`ElevenLabs API error: ${ttsResponse.status}`);
     }
-    const audioBuffer = Buffer.concat(audioChunks);
-    console.log(`Generated TTS audio: ${audioBuffer.length} bytes`);
+    
+    const audioBuffer = await ttsResponse.arrayBuffer();
+    console.log(`Generated TTS audio: ${audioBuffer.byteLength} bytes`);
     
     const totalLatency = Date.now() - startTime;
     
