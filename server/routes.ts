@@ -32,8 +32,8 @@ const clients = new Map<string, ClientConnection>();
 
 // Message schemas for WebSocket communication
 const controlMessageSchema = z.object({
-  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update', 'run_integration_test', 'connection_ready', 'voice_input']),
-  timestamp: z.number(),
+  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update', 'run_integration_test', 'connection_ready', 'voice_input', 'init']),
+  timestamp: z.number().optional(), // Make timestamp optional for init messages
   data: z.any().optional(),
   clientId: z.string().optional(),
   text: z.string().optional(), // Add text field for voice_input messages
@@ -331,6 +331,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           console.log(`[DEBUG] Empty voice input received from client ${client.id}`);
         }
+        break;
+
+      case 'init':
+        // Handle client initialization
+        console.log(`[DEBUG] Client ${client.id} initialized`);
+        sendControlMessage(client, {
+          type: 'init_response',
+          timestamp: Date.now(),
+          status: 'ready'
+        });
         break;
     }
   }

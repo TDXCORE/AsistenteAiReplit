@@ -91,6 +91,15 @@ async function handleControlMessage(client, message) {
       });
       break;
       
+    case 'init':
+      console.log(`Client ${client.id} initialized`);
+      sendControlMessage(client, {
+        type: 'init_response',
+        timestamp: Date.now(),
+        status: 'ready'
+      });
+      break;
+      
     case 'voice_input':
       console.log(`Voice input received: "${message.text}", isProcessing: ${client.isProcessing}`);
       if (message.text && !client.isProcessing) {
