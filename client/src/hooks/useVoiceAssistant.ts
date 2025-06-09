@@ -225,15 +225,65 @@ export function useVoiceAssistant() {
         timestamp: Date.now(),
       });
 
-      // Start audio processing
-      await audioProcessor.startRecording(
-        (audioData) => {
-          wsManagerRef.current?.sendAudioData(audioData);
-        },
-        (level) => {
-          setAudioLevel(level);
+      // For public domains (serverless), use browser Speech Recognition API
+      const isPublicDomain = window.location.host.includes('.replit.dev') || 
+                            window.location.host.includes('.replit.app') ||
+                            window.location.host.includes('.vercel.app');
+      
+      if (isPublicDomain) {
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+          const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+          const recognition = new SpeechRecognition();
+          
+          recognition.continuous = false;
+          recognition.interimResults = true;
+          recognition.lang = 'es-ES';
+          
+          recognition.onresult = (event: any) => {
+            const result = event.results[event.results.length - 1];
+            const transcript = result.transcript;
+            
+            if (result.isFinal) {
+              wsManagerRef.current?.sendControlMessage({
+                type: 'voice_input',
+                text: transcript,
+                timestamp: Date.now(),
+              });
+              setCurrentTranscript('');
+            } else {
+              setCurrentTranscript(transcript);
+            }
+          };
+          
+          recognition.onerror = (event: any) => {
+            console.error('Speech recognition error:', event.error);
+            setIsRecording(false);
+            setAssistantStatus('ready');
+          };
+          
+          recognition.onend = () => {
+            setIsRecording(false);
+            setAssistantStatus('ready');
+          };
+          
+          recognition.start();
+          (window as any).currentRecognition = recognition;
+        } else {
+          alert('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.');
+          setIsRecording(false);
+          setAssistantStatus('ready');
         }
-      );
+      } else {
+        // Use WebSocket audio streaming for local development
+        await audioProcessor.startRecording(
+          (audioData) => {
+            wsManagerRef.current?.sendAudioData(audioData);
+          },
+          (level) => {
+            setAudioLevel(level);
+          }
+        );
+      }
     } catch (error) {
       console.error('Failed to start recording:', error);
       setIsRecording(false);
@@ -246,6 +296,12 @@ export function useVoiceAssistant() {
 
     setIsRecording(false);
     setAssistantStatus('processing');
+
+    // Stop browser Speech Recognition if active
+    if ((window as any).currentRecognition) {
+      (window as any).currentRecognition.stop();
+      (window as any).currentRecognition = null;
+    }
 
     // Stop audio processing
     audioProcessor.stopRecording();
