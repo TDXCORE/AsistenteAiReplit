@@ -30,10 +30,12 @@ module.exports = async function handler(req, res) {
   
   if (req.method === 'POST') {
     const message = req.body;
+    console.log(`Received POST message for client ${clientId}:`, message);
     
     try {
       let client = clients.get(clientId);
       if (!client) {
+        console.log(`Creating new client: ${clientId}`);
         client = {
           id: clientId,
           isRecording: false,
@@ -48,6 +50,7 @@ module.exports = async function handler(req, res) {
       await handleControlMessage(client, message);
       res.json({ success: true });
     } catch (error) {
+      console.error(`Error processing message for client ${clientId}:`, error);
       res.status(500).json({ error: 'Failed to process message' });
     }
   }
