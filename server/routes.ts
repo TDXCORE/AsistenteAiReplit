@@ -32,10 +32,11 @@ const clients = new Map<string, ClientConnection>();
 
 // Message schemas for WebSocket communication
 const controlMessageSchema = z.object({
-  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update', 'run_integration_test', 'connection_ready']),
+  type: z.enum(['start_recording', 'stop_recording', 'interrupt', 'ping', 'settings_update', 'run_integration_test', 'connection_ready', 'voice_input']),
   timestamp: z.number(),
   data: z.any().optional(),
   clientId: z.string().optional(),
+  text: z.string().optional(), // Add text field for voice_input messages
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -292,6 +293,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
             timestamp: Date.now(),
             error: error instanceof Error ? error.message : 'Unknown error',
           });
+        }
+        break;
+
+      case 'voice_input':
+        // Handle voice input from browser Speech Recognition API
+        console.log(`[DEBUG] voice_input case reached for client ${client.id}`);
+        const { text } = message;
+        console.log(`[DEBUG] Extracted text: "${text}"`);
+        
+        if (text && text.trim()) {
+          console.log(`[DEBUG] Processing voice input from client ${client.id}: "${text}"`);
+          
+          // Create session if needed
+          if (!client.sessionId) {
+            console.log(`[DEBUG] Creating new session for client ${client.id}`);
+            const session = await storage.createVoiceSession({
+              clientId: client.id,
+            });
+            client.sessionId = session.id;
+            console.log(`[DEBUG] Session created: ${session.id}`);
+          }
+          
+          // Process the voice input through the complete pipeline
+          console.log(`[DEBUG] Starting voice pipeline for client ${client.id}`);
+          try {
+            await processCompleteVoicePipeline(client, text.trim());
+            console.log(`[DEBUG] Voice pipeline completed for client ${client.id}`);
+          } catch (error) {
+            console.error(`[DEBUG] Voice pipeline error for client ${client.id}:`, error);
+            sendControlMessage(client, {
+              type: 'error',
+              timestamp: Date.now(),
+              error: `Processing failed: ${error.message}`,
+            });
+          }
+        } else {
+          console.log(`[DEBUG] Empty voice input received from client ${client.id}`);
         }
         break;
     }
