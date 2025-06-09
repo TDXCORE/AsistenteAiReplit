@@ -631,9 +631,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`HTTP client created: ${clientId}`);
       }
       
-      await handleControlMessage(client, message);
+      console.log(`[DEBUG] Processing message for ${clientId}:`, JSON.stringify(message));
+      
+      // Validate message schema
+      try {
+        const validatedMessage = controlMessageSchema.parse(message);
+        console.log(`[DEBUG] Message validation successful:`, validatedMessage.type);
+        await handleControlMessage(client, validatedMessage);
+      } catch (validationError) {
+        console.error(`[DEBUG] Message validation failed:`, validationError);
+        return res.status(400).json({ error: 'Invalid message format', details: validationError });
+      }
+      
       res.json({ success: true });
     } catch (error) {
+      console.error(`[DEBUG] General processing error:`, error);
       res.status(500).json({ error: 'Failed to process message' });
     }
   });
